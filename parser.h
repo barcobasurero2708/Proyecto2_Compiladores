@@ -4,27 +4,30 @@
 #include "scanner.h"
 #include "ast.h"
 
-// Parser descendente recursivo: consume tokens del scanner y construye el AST
+// modificación a Parser
 class Parser {
 private:
     Scanner* scanner;
     Token *current, *previous;
-    int loopDepth = 0;   // cantidad de while abiertos (para validar break)
+    int loopDepth = 0;   // cantidad de bucles abiertos (para validar break)
     bool match(Token::Type ttype);
     bool check(Token::Type ttype);
     bool advance();
     bool isAtEnd();
+    void consume(Token::Type ttype, const string& mensaje);
+    Exp* parseCondition();
 
 public:
     Parser(Scanner* scanner);
     Programa* parseProgram();
     Body* parseBody();
-    VarDec* parseVarDec();
+    VarDec* parseVarDec(list<Stmt*>& inicializaciones);
     FunDec* parseFunDec();
     string parseTipo();
     Stmt* parseStmt();
-    list<Stmt*> parseStmtList();
+    list<Stmt*> parseBlock();      // reemplaza a parseStmtList
     Exp* parseCExp();
+    Exp* parseRel();               // la antigua parseCExp (comparación <=)
     Exp* parseBExp();
     Exp* parseExpr();
     Exp* parseTerm();
