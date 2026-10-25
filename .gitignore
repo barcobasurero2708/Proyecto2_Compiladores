@@ -1,0 +1,7 @@
+# Ejecutables
+a.out
+*.out
+
+# Resultados generados por run_all_inputs.py
+outputs/*
+!outputs/.gitkeep

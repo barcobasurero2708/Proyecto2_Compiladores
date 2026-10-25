@@ -1,27 +1,24 @@
-fun int f(int x)
-    return x ** 2 - 2 * x
-endfun
+#include <iostream>
 
-fun int g(int x)
-    return 10 - x
-endfun
+using namespace std;
 
-fun int procesar(int val)
-    var int r1, r2, v_min, v_max, c;
-    r1 = f(val);
-    r2 = g(val);
-    v_min = min(r1, r2, val * 3);
-    v_max = max(r1, r2, val * 3);
-    c = count(v_min <= r1, r1 <= v_max, v_min <= r2, r2 <= v_max);
-    print(v_min);
-    print(v_max);
-    print(c);
-    return v_max - v_min
-endfun
-
-fun int main()
-    var int res;
-    res = procesar(4);
-    print(res);
-    return 0
-endfun
+int main() {
+    int i = 1, j, acum = 0;
+    while (i <= 3) {
+        j = 1;
+        while (j <= 3) {
+            if (j <= 1) {
+                j = j + 1;
+            } else {
+                acum = acum + i * j;
+                j = j + 1;
+            }
+        }
+        i = i + 1;
+    }
+    cout << acum << endl;
+    cout << max(3, 9, 4) << endl;
+    cout << min(3, 9, 4) << endl;
+    cout << count(1 <= 2, 5 <= 2, true) << endl;
+    return 0;
+}

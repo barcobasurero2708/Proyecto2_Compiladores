@@ -23,8 +23,15 @@ output_dir = "outputs"
 LIMITE_SEGUNDOS = 5          # tiempo máximo por programa
 
 # Carpeta de salida limpia: al final solo quedan los .s y el reporte
-shutil.rmtree(output_dir, ignore_errors=True)
-os.makedirs(output_dir)
+os.makedirs(output_dir, exist_ok=True)
+for nombre in os.listdir(output_dir):
+    if nombre == ".gitkeep":
+        continue
+    ruta = os.path.join(output_dir, nombre)
+    if os.path.isdir(ruta):
+        shutil.rmtree(ruta)
+    else:
+        os.remove(ruta)
 reporte = []
 
 

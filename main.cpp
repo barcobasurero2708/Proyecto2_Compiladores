@@ -52,9 +52,9 @@ int main(int argc, const char* argv[]) {
 
     ejecutar_scanner(&scanner1, argv[1]);
 
-    Parser parser(&scanner2);
     Programa* ast = nullptr;
     try {
+        Parser parser(&scanner2);
         ast = parser.parseProgram();
     } catch (const std::exception& e) {
         cerr << "Error al parsear: " << e.what() << endl;
