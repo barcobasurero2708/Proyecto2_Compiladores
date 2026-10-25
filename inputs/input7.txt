@@ -1,28 +1,11 @@
-fun int menor3(int x, int y, int z)
-    return min(x, y, z)
-endfun
+#include <iostream>
 
-fun int mayor3(int x, int y, int z)
-    return max(x, y, z)
-endfun
+#using namespace std;
 
-fun int medio3(int x, int y, int z)
-    return x + y + z - menor3(x, y, z) - mayor3(x, y, z)
-endfun
+int main(){
 
-fun int verificar_orden(int a, int b, int c)
-    return count(a <= b, b <= c, a <= c)
-endfun
-
-fun int main()
-    var int p, m, u, test_orden;
-    p = menor3(48, 17, 33);
-    m = medio3(48, 17, 33);
-    u = mayor3(48, 17, 33);
-    print(p);
-    print(m);
-    print(u);
-    test_orden = verificar_orden(p, m, u);
-    print(test_orden);
-    return 0
-endfun
+    int a = 4;
+    int b = 5;
+    cout << a + b << endl;
+    return 0;
+}

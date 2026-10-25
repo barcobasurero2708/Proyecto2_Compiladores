@@ -559,7 +559,7 @@ void TypeChecker::visit(Programa* program) {
     }
     FunDec* m = funciones["main"];
     if (m->tipo != "int" || !m->parametros_id.empty()) {
-        error("main debe declararse como: fun int main()");
+        error("main debe declararse como: int main()");
     }
     for (FunDec* f : program->funciones) f->accept(this);
 }

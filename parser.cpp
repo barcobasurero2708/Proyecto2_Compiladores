@@ -12,7 +12,7 @@ Parser::Parser(Scanner* sc) : scanner(sc) {
     previous = nullptr;
     current = scanner->nextToken();
     if (current->type == Token::ERR) {
-        throw runtime_error("Error léxico");
+        throw runtime_error("Error léxico: token inválido '" + current->text + "'");
     }
 }
 
@@ -40,7 +40,7 @@ bool Parser::advance() {
         previous = temp;
 
         if (check(Token::ERR)) {
-            throw runtime_error("Error lexico");
+            throw runtime_error("Error léxico: token inválido '" + current->text + "'");
         }
         return true;
     }
@@ -52,17 +52,32 @@ bool Parser::isAtEnd() {
     return current->type == Token::END;
 }
 
-// Programa ::= FunDec+
+// Verifica que el token actual sea del tipo dado y lo consume; si no, lanza el error
+void Parser::consume(Token::Type ttype, const string& mensaje) {
+    if (!match(ttype)) {
+        throw runtime_error("Error sintáctico: " + mensaje);
+    }
+}
+
+// Programa ::= [ using namespace id ';' ] FunDec+
 Programa* Parser::parseProgram() {
     Programa* p = new Programa();
-    if (!check(Token::FUN)) {
-        throw runtime_error("Error sintáctico: el programa debe empezar con una función (fun)");
+    consume(Token::INCLUDE, "el programa debe empezar con '#include <iostream>'");
+    consume(Token::USING, "se esperaba 'using namespace std;' después de #include <iostream>");
+    consume(Token::NAMESPACE, "se esperaba 'namespace' después de 'using'");
+    consume(Token::ID, "se esperaba 'std' después de 'using namespace'");
+    if (previous->text != "std") {
+        throw runtime_error("Error sintáctico: solo se admite 'using namespace std;'");
     }
-    while (check(Token::FUN)) {
+    consume(Token::SEMICOL, "se esperaba ';' después de 'using namespace std'");
+    if (!check(Token::TINT) && !check(Token::TBOOL)) {
+        throw runtime_error("Error sintáctico: se esperaba al menos una función (tipo nombre(...))");
+    }
+    while (check(Token::TINT) || check(Token::TBOOL)) {
         p->funciones.push_back(parseFunDec());
     }
     if (!isAtEnd()) {
-        throw runtime_error("Error sintáctico: se esperaba 'fun' o fin de archivo");
+        throw runtime_error("Error sintáctico: se esperaba una función o fin de archivo");
     }
 
     cout << "Parseo exitoso" << endl;
@@ -71,158 +86,180 @@ Programa* Parser::parseProgram() {
 
 // tipo ::= int | bool
 string Parser::parseTipo() {
-    if (!match(Token::ID) || (previous->text != "int" && previous->text != "bool")) {
+    if (!match(Token::TINT) && !match(Token::TBOOL)) {
         throw runtime_error("Error sintáctico: se esperaba un tipo (int o bool)");
     }
     return previous->text;
 }
 
-// FunDec ::= fun tipo id '(' [ tipo id (',' tipo id)* ] ')' Body endfun
+// FunDec ::= tipo id '(' [ tipo id (',' tipo id)* ] ')' '{' Body '}'
 FunDec* Parser::parseFunDec() {
-    match(Token::FUN);
     FunDec* f = new FunDec();
     f->tipo = parseTipo();
-    if (!match(Token::ID)) {
-        throw runtime_error("Error sintáctico: se esperaba el nombre de la función");
-    }
+    consume(Token::ID, "se esperaba el nombre de la función");
     f->nombre = previous->text;
-    if (!match(Token::LPAREN)) {
-        throw runtime_error("Error sintáctico: se esperaba '(' después de " + f->nombre);
-    }
+    consume(Token::LPAREN, "se esperaba '(' después de " + f->nombre);
     if (!check(Token::RPAREN)) {
         do {
             f->parametros_tipos.push_back(parseTipo());
-            if (!match(Token::ID)) {
-                throw runtime_error("Error sintáctico: se esperaba el nombre del parámetro");
-            }
+            consume(Token::ID, "se esperaba el nombre del parámetro");
             f->parametros_id.push_back(previous->text);
         } while (match(Token::COMMA));
     }
-    if (!match(Token::RPAREN)) {
-        throw runtime_error("Error sintáctico: se esperaba ')' en la función " + f->nombre);
-    }
+    consume(Token::RPAREN, "se esperaba ')' en la función " + f->nombre);
+    consume(Token::LBRACE, "se esperaba '{' al inicio de la función " + f->nombre);
     f->cuerpo = parseBody();
-    if (!match(Token::ENDFUN)) {
-        throw runtime_error("Error sintáctico: se esperaba 'endfun' al final de " + f->nombre);
-    }
+    consume(Token::RBRACE, "se esperaba '}' al final de la función " + f->nombre);
     return f;
 }
 
-// Body ::= VarDec* StmtList
+// Body ::= ( VarDec | Stmt )*      (termina al encontrar '}')
+// Las declaraciones se guardan aparte de las sentencias; los inicializadores
+// ("int x = 5;") se convierten en una asignación que queda en su lugar entre las sentencias.
 Body* Parser::parseBody() {
     Body* b = new Body();
-    while (check(Token::VAR)) {
-        b->declaraciones.push_back(parseVarDec());
-    }
-    for (Stmt* s : parseStmtList()) {
-        b->sentencias.push_back(s);
+    while (!check(Token::RBRACE)) {
+        if (isAtEnd()) {
+            throw runtime_error("Error sintáctico: falta '}' al final de la función");
+        }
+        if (check(Token::TINT) || check(Token::TBOOL)) {
+            list<Stmt*> inicializaciones;
+            b->declaraciones.push_back(parseVarDec(inicializaciones));
+            for (Stmt* s : inicializaciones) b->sentencias.push_back(s);
+        }
+        else {
+            b->sentencias.push_back(parseStmt());
+        }
     }
     return b;
 }
 
-// VarDec ::= var tipo id (',' id)* ';'      tipo ::= int | bool
-VarDec* Parser::parseVarDec() {
-    match(Token::VAR);
+// VarDec ::= tipo id [ '=' CExp ] (',' id [ '=' CExp ])* ';'
+VarDec* Parser::parseVarDec(list<Stmt*>& inicializaciones) {
     VarDec* d = new VarDec();
     d->tipo = parseTipo();
     do {
-        if (!match(Token::ID)) {
-            throw runtime_error("Error sintáctico: se esperaba un nombre de variable");
+        consume(Token::ID, "se esperaba un nombre de variable");
+        string nombre = previous->text;
+        d->variables.push_back(nombre);
+        if (match(Token::ASSIGN)) {
+            inicializaciones.push_back(new AssignStmt(nombre, parseCExp()));
         }
-        d->variables.push_back(previous->text);
     } while (match(Token::COMMA));
-    if (!match(Token::SEMICOL)) {
-        throw runtime_error("Error sintáctico: se esperaba ';' al final de la declaración");
-    }
+    consume(Token::SEMICOL, "se esperaba ';' al final de la declaración");
     return d;
 }
 
-// StmtList ::= Stmt (';' Stmt)*
-list<Stmt*> Parser::parseStmtList() {
+// Block ::= '{' Stmt* '}' | Stmt
+list<Stmt*> Parser::parseBlock() {
     list<Stmt*> slist;
-    slist.push_back(parseStmt());
-    while (match(Token::SEMICOL)) {
+    if (match(Token::LBRACE)) {
+        while (!check(Token::RBRACE)) {
+            if (isAtEnd()) {
+                throw runtime_error("Error sintáctico: falta '}' al final del bloque");
+            }
+            slist.push_back(parseStmt());
+        }
+        match(Token::RBRACE);
+    }
+    else {
         slist.push_back(parseStmt());
     }
     return slist;
 }
 
-// Stmt ::= id '=' CExp | print '(' CExp ')'
-//        | if CExp then StmtList [ else StmtList ] endif
-//        | while CExp do StmtList enddo
-//        | do StmtList while CExp
-//        | break
-//        | return CExp
+// Condition ::= '(' CExp ')'
+Exp* Parser::parseCondition() {
+    consume(Token::LPAREN, "se esperaba '(' antes de la condición");
+    Exp* e = parseCExp();
+    consume(Token::RPAREN, "se esperaba ')' después de la condición");
+    return e;
+}
+
+// Stmt ::= id '=' CExp ';'
+//        | cout '<<' CExp '<<' endl ';'
+//        | if Condition Block [ else Block ]
+//        | while Condition Block
+//        | do Block while Condition ';'
+//        | break ';'
+//        | return CExp ';'
 Stmt* Parser::parseStmt() {
     Exp* e;
     if (match(Token::ID)) {
         string variable = previous->text;
-        match(Token::ASSIGN);
+        consume(Token::ASSIGN, "se esperaba '=' después de " + variable);
         e = parseCExp();
+        consume(Token::SEMICOL, "se esperaba ';' al final de la asignación");
         return new AssignStmt(variable, e);
     }
-    else if (match(Token::PRINT)) {
-        match(Token::LPAREN);
+    else if (match(Token::COUT)) {
+        consume(Token::SHL, "se esperaba '<<' después de cout");
         e = parseCExp();
-        match(Token::RPAREN);
+        consume(Token::SHL, "se esperaba '<<' antes de endl");
+        consume(Token::ENDL, "se esperaba 'endl'");
+        consume(Token::SEMICOL, "se esperaba ';' al final de cout");
         return new PrintStmt(e);
     }
     else if (match(Token::IF)) {
-        e = parseCExp();
-        if (!match(Token::THEN)) {
-            throw runtime_error("Error sintáctico: se esperaba 'then'");
-        }
-        list<Stmt*> thenList = parseStmtList();
+        e = parseCondition();
+        list<Stmt*> thenList = parseBlock();
         list<Stmt*> elseList;
         if (match(Token::ELSE)) {
-            elseList = parseStmtList();
-        }
-        if (!match(Token::ENDIF)) {
-            throw runtime_error("Error sintáctico: se esperaba 'endif'");
+            elseList = parseBlock();      // "else if" funciona solo: el bloque es un if
         }
         return new IfStmt(e, thenList, elseList);
     }
     else if (match(Token::WHILE)) {
-        e = parseCExp();
-        if (!match(Token::DO)) {
-            throw runtime_error("Error sintáctico: se esperaba 'do'");
-        }
+        e = parseCondition();
         loopDepth++;
-        list<Stmt*> body = parseStmtList();
+        list<Stmt*> body = parseBlock();
         loopDepth--;
-        if (!match(Token::ENDDO)) {
-            throw runtime_error("Error sintáctico: se esperaba 'enddo'");
-        }
         return new WhileStmt(e, body);
     }
     else if (match(Token::DO)) {
         loopDepth++;
-        list<Stmt*> body = parseStmtList();
+        list<Stmt*> body = parseBlock();
         loopDepth--;
-        if (!match(Token::WHILE)) {
-            throw runtime_error("Error sintáctico: se esperaba 'while' al final del do");
-        }
-        e = parseCExp();
+        consume(Token::WHILE, "se esperaba 'while' al final del do");
+        e = parseCondition();
+        consume(Token::SEMICOL, "se esperaba ';' después del do-while");
         return new DoWhileStmt(body, e);
     }
     else if (match(Token::RETURN)) {
         ReturnStmt* r = new ReturnStmt();
         r->exp = parseCExp();
+        consume(Token::SEMICOL, "se esperaba ';' después de return");
         return r;
     }
     else if (match(Token::BREAK)) {
         if (loopDepth == 0) {
             throw runtime_error("Error sintáctico: 'break' fuera de un bucle");
         }
+        consume(Token::SEMICOL, "se esperaba ';' después de break");
         return new BreakStmt();
+    }
+    else if (check(Token::TINT) || check(Token::TBOOL)) {
+        throw runtime_error("Error sintáctico: solo se permiten declaraciones al nivel de la función, no dentro de if/while/do");
     }
     else {
         throw runtime_error("Error sintáctico");
     }
 }
 
-// CExp ::= BExp [ <= BExp ]
+// CExp ::= Rel [ '?' CExp ':' CExp ]
 Exp* Parser::parseCExp() {
+    Exp* c = parseRel();
+    if (match(Token::QUESTION)) {
+        Exp* t = parseCExp();
+        consume(Token::COLON, "se esperaba ':' en el operador ?:");
+        Exp* f = parseCExp();
+        return new IfExp(c, t, f);
+    }
+    return c;
+}
+
+// Rel ::= BExp [ <= BExp ]
+Exp* Parser::parseRel() {
     Exp* l = parseBExp();
     if (match(Token::LE)) {
         Exp* r = parseBExp();
@@ -265,17 +302,16 @@ Exp* Parser::parseExpr() {
     return l;
 }
 
-// term ::= factor [ ** factor ]
+// term ::= '-' term | factor
 Exp* Parser::parseTerm() {
-    Exp* l = parseFactor();
-    if (match(Token::POW)) {
-        Exp* r = parseFactor();
-        l = new BinaryExp(l, r, POW_OP);
+    if (match(Token::MINUS)) {
+        Exp* e = parseTerm();
+        return new BinaryExp(new NumberExp(0), e, MINUS_OP);   // -x se trata como 0 - x
     }
-    return l;
+    return parseFactor();
 }
 
-// factor ::= number | true | false | '(' CExp ')' | id | id '(' [CExp (',' CExp)*] ')' | ifexp '(' CExp ',' CExp ',' CExp ')'
+// factor ::= number | true | false | '(' CExp ')' | id | id '(' [CExp (',' CExp)*] ')'
 Exp* Parser::parseFactor() {
     if (match(Token::NUM)) {
         return new NumberExp(stoi(previous->text));
@@ -328,16 +364,6 @@ Exp* Parser::parseFactor() {
         }
         if (!match(Token::RPAREN)) throw runtime_error("Error sintáctico: se esperaba ')' en count");
         return c;
-    }
-    else if (match(Token::IFEXP)) {
-        if (!match(Token::LPAREN)) throw runtime_error("Error sintáctico: se esperaba '(' tras ifexp");
-        Exp* c = parseCExp();
-        if (!match(Token::COMMA)) throw runtime_error("Error sintáctico: se esperaba ','");
-        Exp* t = parseCExp();
-        if (!match(Token::COMMA)) throw runtime_error("Error sintáctico: se esperaba ','");
-        Exp* f = parseCExp();
-        if (!match(Token::RPAREN)) throw runtime_error("Error sintáctico: se esperaba ')'");
-        return new IfExp(c, t, f);
     }
     else {
         throw runtime_error("Error sintáctico");
