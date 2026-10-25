@@ -1,0 +1,22 @@
+fun int contar_multiplos(int limite)
+    var int i, total;
+    i = 1;
+    total = 0;
+    while true do
+        if limite <= i then
+            break
+        endif;
+        total = total + count(i <= (i / 2) * 2, true) - 1;
+        i = i + 1
+    enddo;
+    return total
+endfun
+
+fun int main()
+    var int pares_hasta_10, pares_hasta_20;
+    pares_hasta_10 = contar_multiplos(10);
+    print(pares_hasta_10);
+    pares_hasta_20 = contar_multiplos(20);
+    print(pares_hasta_20);
+    return 0
+endfun

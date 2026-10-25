@@ -1,0 +1,27 @@
+fun int f(int x)
+    return x ** 2 - 2 * x
+endfun
+
+fun int g(int x)
+    return 10 - x
+endfun
+
+fun int procesar(int val)
+    var int r1, r2, v_min, v_max, c;
+    r1 = f(val);
+    r2 = g(val);
+    v_min = min(r1, r2, val * 3);
+    v_max = max(r1, r2, val * 3);
+    c = count(v_min <= r1, r1 <= v_max, v_min <= r2, r2 <= v_max);
+    print(v_min);
+    print(v_max);
+    print(c);
+    return v_max - v_min
+endfun
+
+fun int main()
+    var int res;
+    res = procesar(4);
+    print(res);
+    return 0
+endfun

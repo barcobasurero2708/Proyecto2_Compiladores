@@ -1,0 +1,25 @@
+fun int contar_condiciones(int a)
+    var int c;
+    c = count(a <= 10, 7 <= a, true, 2 * a <= 8);
+    return c
+endfun
+
+fun int calcular_extremos(int a, bool buscar_min)
+    if buscar_min then
+        return min(a * 3, 15 - a, 0 - a, a ** 2)
+    else
+        return max(a * 3, 15 - a, 0 - a, a ** 2)
+    endif
+endfun
+
+fun int main()
+    var int a, c, menor, mayor;
+    a = 4;
+    c = contar_condiciones(a);
+    menor = calcular_extremos(a, true);
+    mayor = calcular_extremos(a, false);
+    print(c);
+    print(menor);
+    print(mayor);
+    return 0
+endfun

@@ -1,0 +1,23 @@
+fun int clamp(int val, int low, int high)
+    return max(low, min(val, high))
+endfun
+
+fun int span(int a, int b, int c)
+    var int menor, mayor;
+    menor = min(a, b, c);
+    mayor = max(a, b, c);
+    return mayor - menor
+endfun
+
+fun int main()
+    var int c1, c2, c3, diferencia;
+    c1 = clamp(15, 10, 20);
+    c2 = clamp(5, 10, 20);
+    c3 = clamp(25, 10, 20);
+    print(c1);
+    print(c2);
+    print(c3);
+    diferencia = span(c1, c2, c3);
+    print(diferencia);
+    return 0
+endfun

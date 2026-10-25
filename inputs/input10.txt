@@ -1,0 +1,25 @@
+fun int fib_spread(int steps)
+    var int f1, f2, next, k, spread_sum;
+    f1 = 1;
+    f2 = 1;
+    k = 0;
+    spread_sum = 0;
+    while k <= steps do
+        next = f1 + f2;
+        f1 = f2;
+        f2 = next;
+        spread_sum = spread_sum + max(f1, f2) - min(f1, f2);
+        k = k + 1
+    enddo;
+    print(f1);
+    print(f2);
+    print(spread_sum);
+    return count(10 <= f1, 20 <= f2, 50 <= spread_sum, k <= 10)
+endfun
+
+fun int main()
+    var int checks;
+    checks = fib_spread(5);
+    print(checks);
+    return 0
+endfun

@@ -1,0 +1,361 @@
+========================================
+input1.txt
+========================================
+Ejercicio:
+fun int contar_condiciones(int a)
+    var int c;
+    c = count(a <= 10, 7 <= a, true, 2 * a <= 8);
+    return c
+endfun
+
+fun int calcular_extremos(int a, bool buscar_min)
+    if buscar_min then
+        return min(a * 3, 15 - a, 0 - a, a ** 2)
+    else
+        return max(a * 3, 15 - a, 0 - a, a ** 2)
+    endif
+endfun
+
+fun int main()
+    var int a, c, menor, mayor;
+    a = 4;
+    c = contar_condiciones(a);
+    menor = calcular_extremos(a, true);
+    mayor = calcular_extremos(a, false);
+    print(c);
+    print(menor);
+    print(mayor);
+    return 0
+endfun
+
+TypeChecker: PASÓ (Typecheck exitoso)
+
+Resultado de input1.s:
+3
+-4
+16
+
+========================================
+input2.txt
+========================================
+Ejercicio:
+fun int clamp(int val, int low, int high)
+    return max(low, min(val, high))
+endfun
+
+fun int span(int a, int b, int c)
+    var int menor, mayor;
+    menor = min(a, b, c);
+    mayor = max(a, b, c);
+    return mayor - menor
+endfun
+
+fun int main()
+    var int c1, c2, c3, diferencia;
+    c1 = clamp(15, 10, 20);
+    c2 = clamp(5, 10, 20);
+    c3 = clamp(25, 10, 20);
+    print(c1);
+    print(c2);
+    print(c3);
+    diferencia = span(c1, c2, c3);
+    print(diferencia);
+    return 0
+endfun
+
+TypeChecker: PASÓ (Typecheck exitoso)
+
+Resultado de input2.s:
+15
+10
+20
+10
+
+========================================
+input3.txt
+========================================
+Ejercicio:
+fun int evaluar_notas(int n1, int n2, int n3, int n4)
+    var int aprobadas;
+    aprobadas = count(60 <= n1, 60 <= n2, 60 <= n3, 60 <= n4);
+    return aprobadas
+endfun
+
+fun bool es_sobresaliente(int n1, int n2, int n3, int n4)
+    var int altas;
+    altas = count(85 <= n1, 85 <= n2, 85 <= n3, 85 <= n4);
+    return 2 <= altas
+endfun
+
+fun int main()
+    var int aprob, nota_min, nota_max;
+    var bool honor;
+    aprob = evaluar_notas(85, 42, 90, 58);
+    print(aprob);
+    honor = es_sobresaliente(85, 42, 90, 58);
+    print(ifexp(honor, 100, 0));
+    nota_min = min(85, 42, 90, 58);
+    nota_max = max(85, 42, 90, 58);
+    print(nota_min);
+    print(nota_max);
+    return 0
+endfun
+
+TypeChecker: PASÓ (Typecheck exitoso)
+
+Resultado de input3.s:
+2
+100
+42
+90
+
+========================================
+input4.txt
+========================================
+Ejercicio:
+fun int find_min_recursive(int n, int current_min)
+    var int val;
+    if n <= 0 then
+        return current_min
+    endif;
+    val = n * n - 6 * n + 5;
+    return find_min_recursive(n - 1, min(current_min, val))
+endfun
+
+fun int find_max_recursive(int n, int current_max)
+    var int val;
+    if n <= 0 then
+        return current_max
+    endif;
+    val = n * n - 6 * n + 5;
+    return find_max_recursive(n - 1, max(current_max, val))
+endfun
+
+fun int main()
+    var int m1, m2;
+    m1 = find_min_recursive(6, 1000);
+    m2 = find_max_recursive(6, 0 - 1000);
+    print(m1);
+    print(m2);
+    print(m2 - m1);
+    return 0
+endfun
+
+TypeChecker: PASÓ (Typecheck exitoso)
+
+Resultado de input4.s:
+-4
+5
+9
+
+========================================
+input5.txt
+========================================
+Ejercicio:
+fun int contar_multiplos(int limite)
+    var int i, total;
+    i = 1;
+    total = 0;
+    while true do
+        if limite <= i then
+            break
+        endif;
+        total = total + count(i <= (i / 2) * 2, true) - 1;
+        i = i + 1
+    enddo;
+    return total
+endfun
+
+fun int main()
+    var int pares_hasta_10, pares_hasta_20;
+    pares_hasta_10 = contar_multiplos(10);
+    print(pares_hasta_10);
+    pares_hasta_20 = contar_multiplos(20);
+    print(pares_hasta_20);
+    return 0
+endfun
+
+TypeChecker: PASÓ (Typecheck exitoso)
+
+Resultado de input5.s:
+4
+9
+
+========================================
+input6.txt
+========================================
+Ejercicio:
+fun int rango(int a, int b, int c, int d)
+    return max(a, b, c, d) - min(a, b, c, d)
+endfun
+
+fun int contar_en_rango(int a, int b, int c, int d, int cota_inf, int cota_sup)
+    return count(cota_inf <= a, a <= cota_sup, cota_inf <= b, b <= cota_sup, cota_inf <= c, c <= cota_sup, cota_inf <= d, d <= cota_sup)
+endfun
+
+fun int main()
+    var int r, validos;
+    r = rango(12, 45, 8, 30);
+    print(r);
+    validos = contar_en_rango(12, 45, 8, 30, 10, 35);
+    print(validos);
+    return 0
+endfun
+
+TypeChecker: PASÓ (Typecheck exitoso)
+
+Resultado de input6.s:
+37
+6
+
+========================================
+input7.txt
+========================================
+Ejercicio:
+fun int menor3(int x, int y, int z)
+    return min(x, y, z)
+endfun
+
+fun int mayor3(int x, int y, int z)
+    return max(x, y, z)
+endfun
+
+fun int medio3(int x, int y, int z)
+    return x + y + z - menor3(x, y, z) - mayor3(x, y, z)
+endfun
+
+fun int verificar_orden(int a, int b, int c)
+    return count(a <= b, b <= c, a <= c)
+endfun
+
+fun int main()
+    var int p, m, u, test_orden;
+    p = menor3(48, 17, 33);
+    m = medio3(48, 17, 33);
+    u = mayor3(48, 17, 33);
+    print(p);
+    print(m);
+    print(u);
+    test_orden = verificar_orden(p, m, u);
+    print(test_orden);
+    return 0
+endfun
+
+TypeChecker: PASÓ (Typecheck exitoso)
+
+Resultado de input7.s:
+17
+33
+48
+3
+
+========================================
+input8.txt
+========================================
+Ejercicio:
+fun int f(int x)
+    return x ** 2 - 2 * x
+endfun
+
+fun int g(int x)
+    return 10 - x
+endfun
+
+fun int procesar(int val)
+    var int r1, r2, v_min, v_max, c;
+    r1 = f(val);
+    r2 = g(val);
+    v_min = min(r1, r2, val * 3);
+    v_max = max(r1, r2, val * 3);
+    c = count(v_min <= r1, r1 <= v_max, v_min <= r2, r2 <= v_max);
+    print(v_min);
+    print(v_max);
+    print(c);
+    return v_max - v_min
+endfun
+
+fun int main()
+    var int res;
+    res = procesar(4);
+    print(res);
+    return 0
+endfun
+
+TypeChecker: PASÓ (Typecheck exitoso)
+
+Resultado de input8.s:
+6
+12
+4
+6
+
+========================================
+input9.txt
+========================================
+Ejercicio:
+fun int evaluar_alertas(int temp, int hum, int pres)
+    return count(75 <= temp, 70 <= hum, pres <= 1000)
+endfun
+
+fun int calcular_prioridad(int alertas, int temp, int hum)
+    if 2 <= alertas then
+        return max(temp - 70, hum - 50, 10)
+    else
+        return min(temp, hum, 5)
+    endif
+endfun
+
+fun int main()
+    var int alertas, prioridad;
+    alertas = evaluar_alertas(82, 75, 1015);
+    print(alertas);
+    prioridad = calcular_prioridad(alertas, 82, 75);
+    print(prioridad);
+    print(prioridad * 2 + alertas);
+    return 0
+endfun
+
+TypeChecker: PASÓ (Typecheck exitoso)
+
+Resultado de input9.s:
+2
+25
+52
+
+========================================
+input10.txt
+========================================
+Ejercicio:
+fun int fib_spread(int steps)
+    var int f1, f2, next, k, spread_sum;
+    f1 = 1;
+    f2 = 1;
+    k = 0;
+    spread_sum = 0;
+    while k <= steps do
+        next = f1 + f2;
+        f1 = f2;
+        f2 = next;
+        spread_sum = spread_sum + max(f1, f2) - min(f1, f2);
+        k = k + 1
+    enddo;
+    print(f1);
+    print(f2);
+    print(spread_sum);
+    return count(10 <= f1, 20 <= f2, 50 <= spread_sum, k <= 10)
+endfun
+
+fun int main()
+    var int checks;
+    checks = fib_spread(5);
+    print(checks);
+    return 0
+endfun
+
+TypeChecker: PASÓ (Typecheck exitoso)
+
+Resultado de input10.s:
+13
+21
+20
+3

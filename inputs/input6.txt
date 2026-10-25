@@ -1,0 +1,16 @@
+fun int rango(int a, int b, int c, int d)
+    return max(a, b, c, d) - min(a, b, c, d)
+endfun
+
+fun int contar_en_rango(int a, int b, int c, int d, int cota_inf, int cota_sup)
+    return count(cota_inf <= a, a <= cota_sup, cota_inf <= b, b <= cota_sup, cota_inf <= c, c <= cota_sup, cota_inf <= d, d <= cota_sup)
+endfun
+
+fun int main()
+    var int r, validos;
+    r = rango(12, 45, 8, 30);
+    print(r);
+    validos = contar_en_rango(12, 45, 8, 30, 10, 35);
+    print(validos);
+    return 0
+endfun

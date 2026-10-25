@@ -1,0 +1,21 @@
+fun int evaluar_alertas(int temp, int hum, int pres)
+    return count(75 <= temp, 70 <= hum, pres <= 1000)
+endfun
+
+fun int calcular_prioridad(int alertas, int temp, int hum)
+    if 2 <= alertas then
+        return max(temp - 70, hum - 50, 10)
+    else
+        return min(temp, hum, 5)
+    endif
+endfun
+
+fun int main()
+    var int alertas, prioridad;
+    alertas = evaluar_alertas(82, 75, 1015);
+    print(alertas);
+    prioridad = calcular_prioridad(alertas, 82, 75);
+    print(prioridad);
+    print(prioridad * 2 + alertas);
+    return 0
+endfun
