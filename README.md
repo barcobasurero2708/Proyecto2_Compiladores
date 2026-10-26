@@ -37,11 +37,12 @@ sudo apt install -y git build-essential python3
 
 ### Pasos de uso
 
+Estos pasos son solo para pruebas personales de las fases iniciales, serán innecesarios para cuando se implemente el frontend.
+
 1. **Clonar** el repositorio y abrirlo en Visual Studio Code:
 
    ```bash
    git clone https://github.com/barcobasurero2708/Proyecto2_Compiladores
-   code .
    ```
 
 2. **Abrir la terminal** integrada de VS Code de **Ubuntu** y comprobar que estás en la carpeta raíz, la que contiene `main.cpp` y `run_all_inputs.py`.
