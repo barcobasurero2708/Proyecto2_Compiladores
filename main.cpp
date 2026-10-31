@@ -3,6 +3,7 @@
 #include <string>
 #include <cstdlib>
 #include <cstdio>
+#include <sys/wait.h>
 #include "scanner.h"
 #include "parser.h"
 #include "ast.h"
@@ -18,13 +19,29 @@ string sinExtension(const string& ruta) {
     return ruta.substr(0, pos);
 }
 
-// Ensambla el .s con gcc, lo ejecuta, guarda lo que imprime en el archivo de salida y borra el ejecutable
-bool ejecutar_codigo(const string& archivoS, const string& ejecutable, const string& archivoSalida) {
+// Protege las rutas al pasarlas al shell, incluso con espacios o comillas.
+string citarShell(const string& texto) {
+    string citado = "'";
+    for (char c : texto) citado += c == '\'' ? "'\\''" : string(1, c);
+    return citado + "'";
+}
+
+// Devuelve el código de salida del programa; -1 indica un fallo al lanzarlo
+// o al ensamblar. Un return distinto de cero no es un error de compilación.
+int ejecutar_codigo(const string& archivoS, const string& ejecutable, const string& archivoSalida) {
+    string ensamblar = "gcc " + citarShell(archivoS) + " -o " + citarShell(ejecutable);
+    if (system(ensamblar.c_str()) != 0) {
+        remove(ejecutable.c_str());
+        return -1;
+    }
     string ruta = ejecutable.find('/') == string::npos ? "./" + ejecutable : ejecutable;
-    string comando = "gcc \"" + archivoS + "\" -o \"" + ejecutable + "\" && \"" + ruta + "\" > \"" + archivoSalida + "\"";
-    bool ok = system(comando.c_str()) == 0;
+    string comando = citarShell(ruta) + " > " + citarShell(archivoSalida);
+    int estado = system(comando.c_str());
     remove(ejecutable.c_str());
-    return ok;
+    if (estado == -1) return -1;
+    if (WIFEXITED(estado)) return WEXITSTATUS(estado);
+    if (WIFSIGNALED(estado)) return 128 + WTERMSIG(estado);
+    return -1;
 }
 
 // Lee el archivo de entrada, guarda sus tokens, lo parsea, genera el .s y guarda su salida
@@ -91,11 +108,13 @@ int main(int argc, const char* argv[]) {
     outS.close();
     cout << "Codigo generado en " << archivoS << endl;
 
-    if (!ejecutar_codigo(archivoS, base + ".out", archivoSalida)) {
+    int codigoSalida = ejecutar_codigo(archivoS, base + ".out", archivoSalida);
+    if (codigoSalida == -1) {
         cerr << "No se pudo ensamblar o ejecutar " << archivoS << endl;
         return 1;
     }
     cout << "Salida guardada en " << archivoSalida << endl;
+    cout << "Codigo de salida del programa: " << codigoSalida << endl;
 
-    return 0;
+    return codigoSalida;
 }
