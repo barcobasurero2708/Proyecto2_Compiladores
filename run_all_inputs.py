@@ -82,9 +82,13 @@ for i in numeros:
     if paso is not True:
         resultado = "No se generó: el programa no pasó el TypeChecker" if paso is False \
                     else "No se generó"
-    elif codigo == 0 and os.path.isfile(salida_file):
+    elif any(linea.startswith("Salida guardada en ") for linea in salida.splitlines()) \
+            and os.path.isfile(salida_file):
         with open(salida_file, encoding="utf-8") as f:
             resultado = f.read().strip()
+        resultado = (resultado or "(sin salida)") + f"\nCódigo de salida: {codigo}"
+        if errores.strip():
+            resultado += "\nDiagnóstico de ejecución:\n" + errores.strip()
     else:
         resultado = "ERROR: " + (errores.strip() or "el .s no se pudo ensamblar o ejecutar")
 

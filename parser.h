@@ -21,7 +21,7 @@ public:
     Parser(Scanner* scanner);
     Programa* parseProgram();
     Body* parseBody();
-    VarDec* parseVarDec(list<Stmt*>& inicializaciones);
+    VarDec* parseVarDec();
     FunDec* parseFunDec();
     string parseTipo();
     Stmt* parseStmt();

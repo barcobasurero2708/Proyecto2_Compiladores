@@ -163,20 +163,20 @@ public:
 
 // ==================== Declaraciones ====================
 
-// Declaración de variables: var tipo id (, id)* ;
-class VarDec {
+// Declaración en su posición original: tipo id [= expr] (, id [= expr])* ;
+class VarDec : public Stmt {
 public:
     vector<string> variables;
+    vector<Exp*> inicializadores;  // nullptr cuando la variable no tiene inicializador
     string tipo;
     VarDec();
-    ~VarDec();
-    void accept(Visitor* visitor);
+    ~VarDec() override;
+    void accept(Visitor* visitor) override;
 };
 
-// Cuerpo: primero las declaraciones y luego las sentencias
+// Cuerpo: declaraciones y sentencias en el orden del código fuente
 class Body {
 public:
-    vector<VarDec*> declaraciones;
     vector<Stmt*> sentencias;
     Body();
     ~Body();

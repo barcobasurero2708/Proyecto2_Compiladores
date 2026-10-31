@@ -114,8 +114,7 @@ FunDec* Parser::parseFunDec() {
 }
 
 // Body ::= ( VarDec | Stmt )*      (termina al encontrar '}')
-// Las declaraciones se guardan aparte de las sentencias; los inicializadores
-// ("int x = 5;") se convierten en una asignación que queda en su lugar entre las sentencias.
+// Se conserva el orden para que una variable no sea visible antes de declararse.
 Body* Parser::parseBody() {
     Body* b = new Body();
     while (!check(Token::RBRACE)) {
@@ -123,9 +122,7 @@ Body* Parser::parseBody() {
             throw runtime_error("Error sintáctico: falta '}' al final de la función");
         }
         if (check(Token::TINT) || check(Token::TBOOL)) {
-            list<Stmt*> inicializaciones;
-            b->declaraciones.push_back(parseVarDec(inicializaciones));
-            for (Stmt* s : inicializaciones) b->sentencias.push_back(s);
+            b->sentencias.push_back(parseVarDec());
         }
         else {
             b->sentencias.push_back(parseStmt());
@@ -135,16 +132,14 @@ Body* Parser::parseBody() {
 }
 
 // VarDec ::= tipo id [ '=' CExp ] (',' id [ '=' CExp ])* ';'
-VarDec* Parser::parseVarDec(list<Stmt*>& inicializaciones) {
+VarDec* Parser::parseVarDec() {
     VarDec* d = new VarDec();
     d->tipo = parseTipo();
     do {
         consume(Token::ID, "se esperaba un nombre de variable");
         string nombre = previous->text;
         d->variables.push_back(nombre);
-        if (match(Token::ASSIGN)) {
-            inicializaciones.push_back(new AssignStmt(nombre, parseCExp()));
-        }
+        d->inicializadores.push_back(match(Token::ASSIGN) ? parseCExp() : nullptr);
     } while (match(Token::COMMA));
     consume(Token::SEMICOL, "se esperaba ';' al final de la declaración");
     return d;
@@ -324,7 +319,7 @@ Exp* Parser::parseFactor() {
     }
     else if (match(Token::LPAREN)) {
         Exp* e = parseCExp();
-        match(Token::RPAREN);
+        consume(Token::RPAREN, "se esperaba ')' al cerrar la expresión");
         return e;
     }
     else if (match(Token::ID)) {
