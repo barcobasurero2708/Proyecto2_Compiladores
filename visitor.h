@@ -48,6 +48,7 @@ public:
 // %rdi, %rsi, %rdx, %rcx, %r8, %r9 y el resultado vuelve en %rax.
 class GencodeVisitor : public Visitor {
 public:
+    vector<string> cadenas;                  // literales del string
     ostream& out;
     TypeChecker* checker;                    // ya ejecutado: dice cuántas variables tiene cada función
     int contador = 1;                        // siguiente posición libre en la pila de la función actual

@@ -1,6 +1,9 @@
 #include <iostream>
 #include <stdexcept>
 #include <unordered_map>
+#include <cstdio>
+#include <cstdint>
+#include <cstring>
 #include "ast.h"
 #include "visitor.h"
 
@@ -11,7 +14,61 @@ static const char* REG_ARGS[6] = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
 
 // Tipo (sin valor concreto) que corresponde a un nombre de tipo
 static Type tipoDe(const string& nombre) {
-    return nombre == "bool" ? Type(false) : Type(0);
+    if (nombre == "bool") return Type(false);
+    if (nombre == "int") return Type(0);
+    if (nombre == "char")   return Type::deKind(Type::CHAR);
+    if (nombre == "float")  return Type::deKind(Type::FLOAT);
+    if (nombre == "string") return Type::deKind(Type::STRING);
+    return Type();
+}
+
+
+// Conversiones implicitas de C++
+static void convertir(ostream& out, Type::Kind desde, Type::Kind hacia) {
+    if (desde == hacia) return;
+    bool desdeEntero = desde == Type::INT || desde == Type::CHAR;
+    if (hacia == Type::FLOAT && desdeEntero) {
+        out << "cvtsi2sdq %rax, %xmm0" << endl;
+        out << "movq %xmm0, %rax" << endl;
+    }
+    else if (desde == Type::FLOAT && (hacia == Type::INT || hacia == Type::CHAR)) {
+        out << "movq %rax, %xmm0" << endl;
+        out << "cvttsd2siq %xmm0, %rax" << endl;         // trunca hacia cero
+        if (hacia == Type::CHAR) out << "movsbq %al, %rax" << endl;
+    }
+    else if (hacia == Type::CHAR && desde == Type::INT) {
+        out << "movsbq %al, %rax" << endl;                 // se queda con el byte bajo
+    }
+    // char -> int: ya está extendido a 64 bits, no hace falta código
+}
+
+// Instrucción setcc de una comparación (con signo para enteros, sin signo tras ucomisd)
+static const char* setcc(BinaryOp op, bool flotante) {
+    switch (op) {
+        case LT_OP: return flotante ? "setb"  : "setl";
+        case LE_OP: return flotante ? "setbe" : "setle";
+        case GT_OP: return flotante ? "seta"  : "setg";
+        case GE_OP: return flotante ? "setae" : "setge";
+        case EQ_OP: return "sete";
+        default:    return "setne";
+    }
+}
+
+// Texto de un string listo para una directiva .string del ensamblador
+static string escaparAsm(const string& texto) {
+    string r;
+    for (unsigned char ch : texto) {
+        if (ch == '"' || ch == '\\') { r += '\\'; r += (char)ch; }
+        else if (ch == '\n') r += "\\n";
+        else if (ch == '\t') r += "\\t";
+        else if (ch < 32 || ch >= 127) {
+            char buf[8];
+            snprintf(buf, sizeof buf, "\\%03o", ch);
+            r += buf;
+        }
+        else r += (char)ch;
+    }
+    return r;
 }
 
 // =====================================================
@@ -119,9 +176,26 @@ Type GencodeVisitor::visit(BinaryExp* exp) {
 
 // Carga el literal en %rax
 Type GencodeVisitor::visit(NumberExp* exp) {
-    out << "movq $" << exp->value << ", %rax" << endl;
-    if (exp->esBool) return Type(exp->value != 0);   // true / false
-    return Type(exp->value);
+    switch (exp->tipo) {
+        case Type::FLOAT: {
+            uint64_t bits;
+            memcpy(&bits, &exp->valorFloat, sizeof bits);      // los 64 bits del double
+            out << "movabsq $" << bits << ", %rax" << endl;
+            return Type::deKind(Type::FLOAT);
+        }
+        case Type::STRING: {
+            out << "leaq .Lstr_" << cadenas.size() << "(%rip), %rax" << endl;
+            cadenas.push_back(exp->texto);                      // se emite al final del programa
+            return Type::deKind(Type::STRING);
+        }
+        case Type::CHAR:
+            out << "movq $" << exp->value << ", %rax" << endl;
+            return Type::deKind(Type::CHAR);
+        default:
+            out << "movq $" << exp->value << ", %rax" << endl;
+            if (exp->esBool) return Type(exp->value != 0);   // true / false
+            return Type(exp->value);
+    }
 }
 
 // Carga el valor de la variable desde la pila en %rax
@@ -175,8 +249,10 @@ Type GencodeVisitor::visit(CountExp* exp) {
 // Llamada: evalúa los argumentos, los pasa en registros y llama a la función.
 // El resultado queda en %rax.
 Type GencodeVisitor::visit(FCallExp* exp) {
-    for (Exp* arg : exp->argumentos) {
-        arg->accept(this);
+    FunDec* f = funciones[exp->nombre];
+    for (size_t i = 0; i < exp->argumentos.size(); i++) {
+        Type t = exp->argumentos[i]->accept(this);
+        convertir(out, t.kind, tipoDe(f->parametros_tipos[i]).kind);   // al tipo del parámetro
         out << "pushq %rax" << endl;
         pila++;
     }
@@ -189,23 +265,42 @@ Type GencodeVisitor::visit(FCallExp* exp) {
     if (alinear) out << "subq $8, %rsp" << endl;
     out << "call " << exp->nombre << endl;
     if (alinear) out << "addq $8, %rsp" << endl;
-    return tipoDe(funciones[exp->nombre]->tipo);
+    return tipoDe(f->tipo);
 }
 
 // Evalúa la expresión y la guarda en la posición de la variable
 void GencodeVisitor::visit(AssignStmt* stm) {
+    Type destino = tipos.lookup(stm->id);            // tipo con el que se declaró la variable
     Type t = stm->e->accept(this);
-    tipos.update(stm->id, t);
+    convertir(out, t.kind, destino.kind);
     out << "movq %rax, " << posicion.lookup(stm->id) * -TAM_VARIABLE << "(%rbp)" << endl;
 }
 
-// Evalúa la expresión y la imprime con printf
+// Evalúa e imprime cada expresión, dejando el salto de línea para la última
 void GencodeVisitor::visit(PrintStmt* stm) {
-    stm->e->accept(this);
-    out << "movq %rax, %rsi" << endl;
-    out << "leaq print_fmt(%rip), %rdi" << endl;
-    out << "movl $0, %eax" << endl;
-    out << "call printf@PLT" << endl;
+    for (size_t i = 0; i < stm->expresiones.size(); i++) {
+        Type t = stm->expresiones[i]->accept(this);
+        bool ultima = i + 1 == stm->expresiones.size();
+        const char* formato;
+        if (t.isFloat()) {
+            formato = ultima ? "print_fmt_float" : "print_fmt_float_cont";
+            out << "movq %rax, %xmm0" << endl;
+            out << "leaq " << formato << "(%rip), %rdi" << endl;
+            out << "movl $1, %eax" << endl;
+        } else {
+            if (t.isChar()) {
+                formato = ultima ? "print_fmt_char" : "print_fmt_char_cont";
+            } else if (t.isString()) {
+                formato = ultima ? "print_fmt_str" : "print_fmt_str_cont";
+            } else {
+                formato = ultima ? "print_fmt" : "print_fmt_cont";
+            }
+            out << "movq %rax, %rsi" << endl;
+            out << "leaq " << formato << "(%rip), %rdi" << endl;
+            out << "movl $0, %eax" << endl;
+        }
+        out << "call printf@PLT" << endl;
+    }
 }
 
 // Genera el código del if: si la condición es 0 salta a la rama else
@@ -257,23 +352,27 @@ void GencodeVisitor::visit(BreakStmt* stm) {
 
 // Genera el código del return: deja el valor en %rax y salta al epílogo de la función
 void GencodeVisitor::visit(ReturnStmt* stm) {
-    stm->exp->accept(this);
+    Type t = stm->exp->accept(this);
+    convertir(out, t.kind, tipoDe(funciones[funcionActual]->tipo).kind);   // al tipo de la función
     out << "jmp .Lfin_" << funcionActual << endl;
 }
 
 // Declara cada variable en el nivel actual: le asigna una posición en la pila y su tipo
 void GencodeVisitor::visit(VarDec* dec) {
+    Type destino = tipoDe(dec->tipo);
     for (size_t i = 0; i < dec->variables.size(); i++) {
         const string& v = dec->variables[i];
         posicion.add_var(v, contador++);
-        tipos.add_var(v, tipoDe(dec->tipo));
+        tipos.add_var(v, destino);
         if (dec->inicializadores[i]) {
             Type t = dec->inicializadores[i]->accept(this);
-            tipos.update(v, t);
-            out << "movq %rax, " << posicion.lookup(v) * -TAM_VARIABLE << "(%rbp)" << endl;
+            convertir(out, t.kind, destino.kind);
+        } else if (destino.isString()) {
+            out << "leaq .Lcadena_vacia(%rip), %rax" << endl;   // un string sin inicializar es ""
         } else {
-            out << "movq $0, " << posicion.lookup(v) * -TAM_VARIABLE << "(%rbp)" << endl;
+            out << "movq $0, %rax" << endl;
         }
+        out << "movq %rax, " << posicion.lookup(v) * -TAM_VARIABLE << "(%rbp)" << endl;
     }
 }
 
@@ -322,6 +421,14 @@ void GencodeVisitor::visit(Programa* program) {
 
     out << ".data" << endl;
     out << "print_fmt:.string \"%ld\\n\" " << endl;
+    out << "print_fmt_cont:.string \"%ld\"" << endl;
+    out << "print_fmt_char:.string \"%c\\n\"" << endl;
+    out << "print_fmt_char_cont:.string \"%c\"" << endl;
+    out << "print_fmt_float:.string \"%g\\n\"" << endl;
+    out << "print_fmt_float_cont:.string \"%g\"" << endl;
+    out << "print_fmt_str:.string \"%s\\n\"" << endl;
+    out << "print_fmt_str_cont:.string \"%s\"" << endl;
+    out << ".Lcadena_vacia:.string \"\"" << endl;
     out << ".Lmensaje_division_cero:.string \"Error de ejecucion: division entre cero.\\n\"" << endl;
     out << ".text" << endl;
     out << ".globl main" << endl;
@@ -335,6 +442,10 @@ void GencodeVisitor::visit(Programa* program) {
     out << "call fputs@PLT" << endl;
     out << "movl $1, %edi" << endl;
     out << "call exit@PLT" << endl;
+    out << ".section .rodata" << endl;
+    for (size_t i = 0; i < cadenas.size(); i++) {
+        out << ".Lstr_" << i << ":.string \"" << escaparAsm(cadenas[i]) << "\"" << endl;
+    }
     out << ".section .note.GNU-stack,\"\",@progbits" << endl;
 }
 
@@ -345,6 +456,19 @@ void GencodeVisitor::visit(Programa* program) {
 // Lanza un error de tipos con el mensaje dado
 static void error(const string& msg) {
     throw runtime_error(msg);
+}
+
+// Nombres de tipo válidos en una declaración
+static bool tipoValido(const string& t) {
+    return t == "int" || t == "bool" || t == "char" || t == "float" || t == "string";
+}
+
+// Mismo tipo siempre; int, char y float se convierten entre sí (como en C++).
+static bool asignable(Type::Kind destino, Type::Kind origen) {
+    if (destino == origen) return true;
+    bool numDestino = destino == Type::INT || destino == Type::CHAR || destino == Type::FLOAT;
+    bool numOrigen  = origen  == Type::INT || origen  == Type::CHAR || origen  == Type::FLOAT;
+    return numDestino && numOrigen;
 }
 
 // Verifica todo el programa
@@ -374,18 +498,32 @@ Type TypeChecker::visit(BinaryExp* exp) {
     Type l = exp->left->accept(this);
     Type r = exp->right->accept(this);
     string op = Exp::binopToChar(exp->op);
-    if (!l.isInt() || !r.isInt()) {
-        error("el operador '" + op + "' necesita operandos int, pero recibió "
-              + l.kindName() + " " + op + " " + r.kindName());
+    string operandos = l.kindName() + " " + op + " " + r.kindName();
+
+    // == y !=: dos números, dos bool o dos string
+    if (exp->op == EQ_OP || exp->op == NE_OP) {
+        if (l.isNumeric() && r.isNumeric()) return Type(false);
+        if (l.kind == r.kind && (l.isBool() || l.isString())) return Type(false);
+        error("el operador '" + op + "' no se puede aplicar a " + operandos);
     }
-    if (exp->op == LE_OP) return Type(false);   // bool
-    return Type(0);                              // int
+
+    // Resto de operadores: solo números (int, char o float)
+    if (!l.isNumeric() || !r.isNumeric()) {
+        error("el operador '" + op + "' necesita operandos numéricos (int, char o float), pero recibió "
+              + operandos);
+    }
+    if (exp->op == LT_OP || exp->op == LE_OP || exp->op == GT_OP || exp->op == GE_OP) {
+        return Type(false);                              // comparación -> bool
+    }
+    if (l.isFloat() || r.isFloat()) return Type::deKind(Type::FLOAT);
+    return Type(0);                                      // int (un char se promueve a int)                             // int
 }
 
 // Un número es int; true / false son bool
 Type TypeChecker::visit(NumberExp* exp) {
     if (exp->esBool) return Type(false);
-    return Type(0);
+    if (exp->tipo == Type::INT) return Type(0);
+    return Type::deKind(exp->tipo);
 }
 
 // Una variable tiene el tipo con el que fue declarada
@@ -447,7 +585,7 @@ Type TypeChecker::visit(FCallExp* exp) {
     }
     for (size_t i = 0; i < exp->argumentos.size(); i++) {
         Type t = exp->argumentos[i]->accept(this);
-        if (t.kindName() != f->parametros_tipos[i]) {
+        if (!asignable(tipoDe(f->parametros_tipos[i]).kind, t.kind)) {
             error("el argumento " + to_string(i + 1) + " de " + f->nombre + " debe ser "
                   + f->parametros_tipos[i] + ", pero es " + t.kindName());
         }
@@ -464,17 +602,19 @@ void TypeChecker::visit(AssignStmt* stm) {
     }
     Type declarado = tipos.lookup(stm->id);
     Type t = stm->e->accept(this);
-    if (t.kind != declarado.kind) {
+    if (!asignable(declarado.kind, t.kind)) {
         error("no se puede asignar " + t.kindName() + " a la variable "
               + declarado.kindName() + " " + stm->id);
     }
 }
 
-// print(e): e debe tener un valor (int o bool)
+// Cada expresión de cout debe tener un valor que pueda imprimirse
 void TypeChecker::visit(PrintStmt* stm) {
-    Type t = stm->e->accept(this);
-    if (t.isVoid()) {
-        error("print necesita una expresión int o bool");
+    for (Exp* expresion : stm->expresiones) {
+        Type t = expresion->accept(this);
+        if (t.isVoid()) {
+            error("cout necesita expresiones con valor");
+        }
     }
 }
 
@@ -511,7 +651,7 @@ void TypeChecker::visit(BreakStmt* stm) {
 // return e: e debe tener el tipo de la función
 void TypeChecker::visit(ReturnStmt* stm) {
     Type t = stm->exp->accept(this);
-    if (t.kindName() != funcionActual->tipo) {
+    if (!asignable(tipoDe(funcionActual->tipo).kind, t.kind)) {
         error("la función " + funcionActual->nombre + " debe devolver "
               + funcionActual->tipo + ", pero return devuelve " + t.kindName());
     }
@@ -521,7 +661,7 @@ void TypeChecker::visit(ReturnStmt* stm) {
 
 // var tipo ids: tipo válido y sin variables repetidas
 void TypeChecker::visit(VarDec* dec) {
-    if (dec->tipo != "int" && dec->tipo != "bool") {
+    if (!tipoValido(dec->tipo)) {
         error("tipo desconocido: " + dec->tipo);
     }
     for (size_t i = 0; i < dec->variables.size(); i++) {
@@ -533,7 +673,7 @@ void TypeChecker::visit(VarDec* dec) {
         numVariables[funcionActual->nombre]++;      // una variable local más
         if (dec->inicializadores[i]) {
             Type t = dec->inicializadores[i]->accept(this);
-            if (t.kindName() != dec->tipo) {
+            if (!asignable(tipoDe(dec->tipo).kind, t.kind)) {
                 error("no se puede asignar " + t.kindName() + " a la variable "
                       + dec->tipo + " " + v);
             }

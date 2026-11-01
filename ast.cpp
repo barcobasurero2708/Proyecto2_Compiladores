@@ -15,6 +15,11 @@ string Exp::binopToChar(BinaryOp op) {
         case DIV_OP:   return "/";
         case POW_OP:   return "**";
         case LE_OP:    return "<=";
+        case LT_OP:    return "<";
+        case GT_OP:    return ">";
+        case GE_OP:    return ">=";
+        case EQ_OP:    return "==";
+        case NE_OP:    return "!=";
         default:       return "?";
     }
 }
@@ -30,7 +35,30 @@ BinaryExp::~BinaryExp() {
 }
 
 // Crea un literal entero
-NumberExp::NumberExp(int v, bool b) : value(v), esBool(b) {}
+NumberExp::NumberExp(int v, bool b)  : value(v), esBool(b), tipo(b ? Type::BOOL : Type::INT){}
+
+// Crea un literal char
+NumberExp* NumberExp::crearChar(char c) {
+    NumberExp* e = new NumberExp((int)c);
+    e->tipo = Type::CHAR;
+    return e;
+}
+
+// Crea un literal float
+NumberExp* NumberExp::crearFloat(double d) {
+    NumberExp* e = new NumberExp(0);
+    e->tipo = Type::FLOAT;
+    e->valorFloat = d;
+    return e;
+}
+
+// Crea un literal string
+NumberExp* NumberExp::crearString(const string& s) {
+    NumberExp* e = new NumberExp(0);
+    e->tipo = Type::STRING;
+    e->texto = s;
+    return e;
+}
 
 // Destructor de NumberExp
 NumberExp::~NumberExp() {}
@@ -77,13 +105,13 @@ AssignStmt::AssignStmt(string variable, Exp* expresion) {
 // Destructor de AssignStmt
 AssignStmt::~AssignStmt() {}
 
-// Crea una sentencia print de la expresión
-PrintStmt::PrintStmt(Exp* expresion) {
-    e = expresion;
-}
+// Crea una sentencia print con todas sus expresiones
+PrintStmt::PrintStmt(vector<Exp*> expresiones) : expresiones(expresiones) {}
 
 // Destructor de PrintStmt
-PrintStmt::~PrintStmt() {}
+PrintStmt::~PrintStmt() {
+    for (Exp* expresion : expresiones) delete expresion;
+}
 
 // Crea un if con su condición, rama then y rama else (puede estar vacía)
 IfStmt::IfStmt(Exp* c, list<Stmt*> t, list<Stmt*> e)

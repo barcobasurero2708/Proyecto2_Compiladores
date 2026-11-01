@@ -49,6 +49,17 @@ public:
         INCLUDE,
         QUESTION,
         COLON,
+        LT,
+        GT,
+        GE,
+        EQ,
+        NE,
+        FLOATNUM,
+        CHARLIT,
+        STRLIT,
+        TCHAR,
+        TFLOAT,
+        TSTRING,
         END
     };
 

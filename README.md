@@ -75,7 +75,7 @@ Estos pasos son solo para pruebas personales de las fases iniciales, serán inne
 ```
 Programa ::= "#include <iostream>" "using" "namespace" "std" ";" FunDec+
 FunDec   ::= Tipo ID "(" [ Tipo ID { "," Tipo ID } ] ")" "{" Body "}"
-Tipo     ::= "int" | "bool"
+Tipo     ::= "int" | "bool" | "char" | "float" | "double" | "string"
 Body     ::= { VarDec | Stmt }
 VarDec   ::= Tipo ID [ "=" CExp ] { "," ID [ "=" CExp ] } ";"
 
@@ -88,15 +88,17 @@ Stmt     ::= ID "=" CExp ";"
            | "return" CExp ";"
 Block    ::= "{" { Stmt } "}" | Stmt
 
-CExp     ::= Rel [ "?" CExp ":" CExp ]
+CExp     ::= Eq [ "?" CExp ":" CExp ]
+Eq       ::= Rel { ("==" | "!=") Rel }
 Rel      ::= BExp [ "<=" BExp ]
 BExp     ::= Expr { ("+" | "-") Expr }
 Expr     ::= Term { ("*" | "/") Term }
 Term     ::= "-" Term | Factor
-Factor   ::= NUM | "true" | "false" | "(" CExp ")" | ID
+Factor   ::= NUM | FLOATNUM | CHARLIT | STRLIT | "true" | "false" | "(" CExp ")" | ID
            | ID "(" [ CExp { "," CExp } ] ")"
            | ("max" | "min") "(" CExp { "," CExp } ")"
            | "count" "(" [ CExp { "," CExp } ] ")"
+
 ```
 
 ### Precedencia (de menor a mayor)
@@ -119,13 +121,16 @@ Factor   ::= NUM | "true" | "false" | "(" CExp ")" | ID
 
 ## Limitaciones de la fase inicial
 
-- Solo existe el comparador `<=` (sin `<`, `>`, `>=`, `==`, `!=`, `&&`, `||`, `!`).
-- `cout` solo admite `cout << expr << endl;`.
+- float y double son lo mismo y se calculan con precisión de double.
+- No hay concatenación de strings, < entre strings, ni !, &&, ||.
 - Las declaraciones van al nivel de la función (no dentro de `if/while/do`) y se procesan en su orden original; una variable no puede usarse antes de declararla.
 - Solo tipos `int` y `bool` (sin `void`, cadenas, arreglos ni `for`).
 - `max/min` con más de 2 argumentos y `count` son extensiones de lo trabajado en clase, no C++ estándar.
 
 Se corregirán estas limitaciones conforme se vaya escalando más el compilador.
+
+- Solo existe el comparador `<=` (sin `<`, `>`, `>=`, `==`, `!=`, `&&`, `||`, `!`). (Resuelto)
+- `cout` no admite una o más expresiones encadenadas, por ejemplo `cout << variable << " texto" << otraVariable << endl;`. (Resuelto)
 
 ## Pruebas automáticas
 

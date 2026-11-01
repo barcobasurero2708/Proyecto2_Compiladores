@@ -12,6 +12,7 @@ private:
     int loopDepth = 0;   // cantidad de bucles abiertos (para validar break)
     bool match(Token::Type ttype);
     bool check(Token::Type ttype);
+    bool checkTipo();
     bool advance();
     bool isAtEnd();
     void consume(Token::Type ttype, const string& mensaje);
@@ -27,7 +28,8 @@ public:
     Stmt* parseStmt();
     list<Stmt*> parseBlock();      // reemplaza a parseStmtList
     Exp* parseCExp();
-    Exp* parseRel();               // la antigua parseCExp (comparación <=)
+    Exp* parseEq();            // igualdad y desiguakdad
+    Exp* parseRel();               // comparaciones
     Exp* parseBExp();
     Exp* parseExpr();
     Exp* parseTerm();
