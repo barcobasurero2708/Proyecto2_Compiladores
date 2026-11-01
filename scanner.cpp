@@ -41,7 +41,16 @@ Token* Scanner::nextToken() {
         current++;
         while (current < input.length() && isdigit(input[current]))
             current++;
-        token = new Token(Token::NUM, input, first, current - first);
+        // Parte decimal para tipos float
+        if (current + 1 < (int)input.length() && input[current] == '.' && isdigit(input[current + 1])) {
+            current++;
+            while (current < input.length() && isdigit(input[current]))
+                current++;
+            token = new Token(Token::FLOATNUM, input, first, current - first);
+        }
+        else {
+            token = new Token(Token::NUM, input, first, current - first);
+        }
     }
     else if (isalpha(c) || c == '_') {
         current++;
@@ -66,6 +75,10 @@ Token* Scanner::nextToken() {
         else if (lexema == "endl")      return new Token(Token::ENDL,      input, first, current - first);
         else if (lexema == "using")     return new Token(Token::USING,     input, first, current - first);
         else if (lexema == "namespace") return new Token(Token::NAMESPACE, input, first, current - first);
+        else if (lexema == "char")      return new Token(Token::TCHAR,     input, first, current - first);
+        else if (lexema == "float")     return new Token(Token::TFLOAT,    input, first, current - first);
+        else if (lexema == "double")    return new Token(Token::TFLOAT,    input, first, current - first);
+        else if (lexema == "string")    return new Token(Token::TSTRING,   input, first, current - first);
         else                            return new Token(Token::ID,        input, first, current - first);
     }
     else if (c == '#') {
@@ -79,7 +92,22 @@ Token* Scanner::nextToken() {
         if (compacta == "#include<iostream>") token = new Token(Token::INCLUDE, input, first, fin - first);
         else                                  token = new Token(Token::ERR,     input, first, fin - first);
     }
-    else if (strchr("+/-*();=<,{}?:", c)) {
+    else if (c == '\'' || c == '"') {
+        // Literal char ('a', '\n') o string ("hola")
+        current++;
+        while (current < (int)input.length() && input[current] != c && input[current] != '\n') {
+            if (input[current] == '\\') current++;      // el carácter escapado no cierra el literal
+            current++;
+        }
+        if (current >= (int)input.length() || input[current] != c) {
+            token = new Token(Token::ERR, input, first, current - first);   // falta la comilla de cierre
+        }
+        else {
+            current++;                                                       // consume la comilla de cierre
+            token = new Token(c == '\'' ? Token::CHARLIT : Token::STRLIT, input, first, current - first);
+        }
+    }
+    else if (strchr("+/-*();=<>!,{}?:", c)) {
         switch (c) {
             case '+': token = new Token(Token::PLUS,     c); break;
             case '-': token = new Token(Token::MINUS,    c); break;
@@ -89,19 +117,45 @@ Token* Scanner::nextToken() {
             case ')': token = new Token(Token::RPAREN,   c); break;
             case '{': token = new Token(Token::LBRACE,   c); break;
             case '}': token = new Token(Token::RBRACE,   c); break;
-            case '=': token = new Token(Token::ASSIGN,   c); break;
+            case '=':
+                if (input[current + 1] == '=') { //comparación de igualdad ==
+                    current++;
+                    token = new Token(Token::EQ, input, first, current + 1 - first);
+                }
+                else {
+                    token = new Token(Token::ASSIGN, c);
+                }
+                break;
             case ';': token = new Token(Token::SEMICOL,  c); break;
             case ',': token = new Token(Token::COMMA,    c); break;
             case '?': token = new Token(Token::QUESTION, c); break;
             case ':': token = new Token(Token::COLON,    c); break;
-            case '<':
-                if (input[current + 1] == '=') {
-                    current++;
+            case '<': 
+                if (input[current + 1] == '=') {// menor o igual
+                    current++; 
                     token = new Token(Token::LE, input, first, current + 1 - first);
                 }
-                else if (input[current + 1] == '<') {
+                else if (input[current + 1] == '<') { //impresión
                     current++;
                     token = new Token(Token::SHL, input, first, current + 1 - first);
+                }
+                else {
+                    token = new Token(Token::LT, c);
+                }
+                break;
+            case '>':
+                if (input[current + 1] == '=') { //mayor o igual
+                    current++;
+                    token = new Token(Token::GE, input, first, current + 1 - first);
+                }
+                else {
+                    token = new Token(Token::GT, c);
+                }
+                break;
+            case '!':
+                if (input[current + 1] == '=') { // desigualdad
+                    current++;
+                    token = new Token(Token::NE, input, first, current + 1 - first);
                 }
                 else {
                     token = new Token(Token::ERR, c);

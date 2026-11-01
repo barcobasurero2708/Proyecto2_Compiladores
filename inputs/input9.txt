@@ -1,0 +1,52 @@
+#include <iostream>
+
+using namespace std;
+
+bool esMayor(float a, float b){
+    if(a > b){
+        return true;
+    }
+    else{
+        return false;
+    }
+}
+
+bool esMenor(float a, float b){
+    if(a < b){
+        return true;
+    }
+    else{
+        return false;
+    }
+}
+
+
+string sonIguales(float a, float b){
+    if(a == b){
+        return "Son iguales";
+    }
+
+    else {
+        return "No son iguales lol k mal";
+    }
+}
+
+int main(){
+
+    float a = 10.5;
+    float b = 7.4123;
+
+    if(esMayor(a,b)){
+        cout << a << " es mayor a " << b << endl;
+    }
+
+    if(esMenor(a,b)){
+        cout << b << " es menor a " << a << endl;
+    }
+
+    string s = sonIguales(a,a);
+
+    cout << s << endl;
+
+    return 0;
+}

@@ -80,6 +80,13 @@ VALID = {
         cout << ((1 + 2) * (3 + 4)) << endl;
         return 0;
     }""",
+    "cout_encadenado": """int main() {
+        float b = 7.4123, a = 10.5;
+        string sufijo = " es mayor a ";
+        cout << b << " es mayor a " << a << endl;
+        cout << b << sufijo << a << endl;
+        return 0;
+    }""",
 }
 
 INVALID = {

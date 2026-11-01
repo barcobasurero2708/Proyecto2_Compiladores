@@ -52,11 +52,41 @@ bool Parser::isAtEnd() {
     return current->type == Token::END;
 }
 
+bool Parser::checkTipo() {
+    return check(Token::TINT) || check(Token::TBOOL) || check(Token::TCHAR)
+        || check(Token::TFLOAT) || check(Token::TSTRING);
+}
+
 // Verifica que el token actual sea del tipo dado y lo consume; si no, lanza el error
 void Parser::consume(Token::Type ttype, const string& mensaje) {
     if (!match(ttype)) {
         throw runtime_error("Error sintáctico: " + mensaje);
     }
+}
+
+// Resuelve las secuencias de escape de un literal char o string (el texto viene sin comillas)
+static string desescapar(const string& crudo) {
+    string r;
+    for (size_t i = 0; i < crudo.size(); i++) {
+        if (crudo[i] != '\\') {
+            r += crudo[i];
+            continue;
+        }
+        if (++i >= crudo.size()) {
+            throw runtime_error("Error sintáctico: secuencia de escape incompleta");
+        }
+        switch (crudo[i]) {
+            case 'n':  r += '\n'; break;
+            case 't':  r += '\t'; break;
+            case '0':  r += '\0'; break;
+            case '\\': r += '\\'; break;
+            case '\'': r += '\''; break;
+            case '"':  r += '"'; break;
+            default:
+                throw runtime_error(string("Error sintáctico: secuencia de escape desconocida '\\") + crudo[i] + "'");
+        }
+    }
+    return r;
 }
 
 // Programa ::= [ using namespace id ';' ] FunDec+
@@ -70,10 +100,10 @@ Programa* Parser::parseProgram() {
         throw runtime_error("Error sintáctico: solo se admite 'using namespace std;'");
     }
     consume(Token::SEMICOL, "se esperaba ';' después de 'using namespace std'");
-    if (!check(Token::TINT) && !check(Token::TBOOL)) {
+    if (!checkTipo()) {
         throw runtime_error("Error sintáctico: se esperaba al menos una función (tipo nombre(...))");
     }
-    while (check(Token::TINT) || check(Token::TBOOL)) {
+    while (checkTipo()) {
         p->funciones.push_back(parseFunDec());
     }
     if (!isAtEnd()) {
@@ -84,11 +114,13 @@ Programa* Parser::parseProgram() {
     return p;
 }
 
-// tipo ::= int | bool
+// tipo ::= int | bool | char | float | string
 string Parser::parseTipo() {
-    if (!match(Token::TINT) && !match(Token::TBOOL)) {
-        throw runtime_error("Error sintáctico: se esperaba un tipo (int o bool)");
+    if (!checkTipo()) {
+        throw runtime_error("Error sintáctico: se esperaba un tipo (int, bool, char, float o string)");
     }
+    advance();
+    if (previous->type == Token::TFLOAT) return "float";
     return previous->text;
 }
 
@@ -121,7 +153,7 @@ Body* Parser::parseBody() {
         if (isAtEnd()) {
             throw runtime_error("Error sintáctico: falta '}' al final de la función");
         }
-        if (check(Token::TINT) || check(Token::TBOOL)) {
+        if (checkTipo()) {
             b->sentencias.push_back(parseVarDec());
         }
         else {
@@ -189,11 +221,14 @@ Stmt* Parser::parseStmt() {
     }
     else if (match(Token::COUT)) {
         consume(Token::SHL, "se esperaba '<<' después de cout");
-        e = parseCExp();
-        consume(Token::SHL, "se esperaba '<<' antes de endl");
+        vector<Exp*> expresiones;
+        do {
+            expresiones.push_back(parseCExp());
+            consume(Token::SHL, "se esperaba '<<' antes de endl");
+        } while (!check(Token::ENDL));
         consume(Token::ENDL, "se esperaba 'endl'");
         consume(Token::SEMICOL, "se esperaba ';' al final de cout");
-        return new PrintStmt(e);
+        return new PrintStmt(expresiones);
     }
     else if (match(Token::IF)) {
         e = parseCondition();
@@ -233,7 +268,7 @@ Stmt* Parser::parseStmt() {
         consume(Token::SEMICOL, "se esperaba ';' después de break");
         return new BreakStmt();
     }
-    else if (check(Token::TINT) || check(Token::TBOOL)) {
+    else if (checkTipo()) {
         throw runtime_error("Error sintáctico: solo se permiten declaraciones al nivel de la función, no dentro de if/while/do");
     }
     else {
@@ -243,7 +278,7 @@ Stmt* Parser::parseStmt() {
 
 // CExp ::= Rel [ '?' CExp ':' CExp ]
 Exp* Parser::parseCExp() {
-    Exp* c = parseRel();
+    Exp* c = parseEq();
     if (match(Token::QUESTION)) {
         Exp* t = parseCExp();
         consume(Token::COLON, "se esperaba ':' en el operador ?:");
@@ -253,12 +288,30 @@ Exp* Parser::parseCExp() {
     return c;
 }
 
-// Rel ::= BExp [ <= BExp ]
+// Eq ::= Rel { ('==' | '!=') Rel }
+Exp* Parser::parseEq() {
+    Exp* l = parseRel();
+    while (match(Token::EQ) || match(Token::NE)) {
+        BinaryOp op = previous->type == Token::EQ ? EQ_OP : NE_OP;
+        Exp* r = parseRel();
+        l = new BinaryExp(l, r, op);
+    }
+    return l;
+}
+
+// Rel ::= BExp { ('<' | '<=' | '>' | '>=') BExp }
 Exp* Parser::parseRel() {
     Exp* l = parseBExp();
-    if (match(Token::LE)) {
+    while (match(Token::LT) || match(Token::LE) || match(Token::GT) || match(Token::GE)) {
+        BinaryOp op;
+        switch (previous->type) {
+            case Token::LT: op = LT_OP; break;
+            case Token::LE: op = LE_OP; break;
+            case Token::GT: op = GT_OP; break;
+            default:        op = GE_OP; break;
+        }
         Exp* r = parseBExp();
-        l = new BinaryExp(l, r, LE_OP);
+        l = new BinaryExp(l, r, op);
     }
     return l;
 }
@@ -310,6 +363,25 @@ Exp* Parser::parseTerm() {
 Exp* Parser::parseFactor() {
     if (match(Token::NUM)) {
         return new NumberExp(stoi(previous->text));
+    }
+    else if (match(Token::FLOATNUM)) {
+        return NumberExp::crearFloat(stod(previous->text));
+    }
+    else if (match(Token::CHARLIT)) {
+        string crudo = previous->text;
+        string valor = desescapar(crudo.substr(1, crudo.size() - 2));
+        if (valor.size() != 1) {
+            throw runtime_error("Error sintáctico: un literal char debe tener un solo carácter: " + crudo);
+        }
+        return NumberExp::crearChar(valor[0]);
+    }
+    else if (match(Token::STRLIT)) {
+        string crudo = previous->text;
+        string valor = desescapar(crudo.substr(1, crudo.size() - 2));
+        if (valor.find('\0') != string::npos) {
+            throw runtime_error("Error sintáctico: no se admite '\\0' dentro de un string");
+        }
+        return NumberExp::crearString(valor);
     }
     else if (match(Token::TRUE)) {
         return new NumberExp(1, true);

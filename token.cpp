@@ -57,6 +57,17 @@ ostream& operator<<(ostream& outs, const Token& tok) {
         case Token::INCLUDE:   outs << "TOKEN(INCLUDE, \"" << tok.text << "\")"; break;
         case Token::QUESTION:  outs << "TOKEN(QUESTION, \"" << tok.text << "\")"; break;
         case Token::COLON:     outs << "TOKEN(COLON, \""    << tok.text << "\")"; break;
+        case Token::LT:        outs << "TOKEN(LT, \""       << tok.text << "\")"; break;
+        case Token::GT:        outs << "TOKEN(GT, \""       << tok.text << "\")"; break;
+        case Token::GE:        outs << "TOKEN(GE, \""       << tok.text << "\")"; break;
+        case Token::EQ:        outs << "TOKEN(EQ, \""       << tok.text << "\")"; break;
+        case Token::NE:        outs << "TOKEN(NE, \""       << tok.text << "\")"; break;
+        case Token::FLOATNUM:  outs << "TOKEN(FLOATNUM, \"" << tok.text << "\")"; break;
+        case Token::CHARLIT:   outs << "TOKEN(CHARLIT, \""  << tok.text << "\")"; break;
+        case Token::STRLIT:    outs << "TOKEN(STRLIT, \""   << tok.text << "\")"; break;
+        case Token::TCHAR:     outs << "TOKEN(TCHAR, \""    << tok.text << "\")"; break;
+        case Token::TFLOAT:    outs << "TOKEN(TFLOAT, \""   << tok.text << "\")"; break;
+        case Token::TSTRING:   outs << "TOKEN(TSTRING, \""  << tok.text << "\")"; break;
         case Token::END:      outs << "TOKEN(END)"; break;
     }
     return outs;

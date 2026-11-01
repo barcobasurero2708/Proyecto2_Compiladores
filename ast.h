@@ -19,7 +19,12 @@ enum BinaryOp {
     MUL_OP,
     DIV_OP,
     POW_OP,
-    LE_OP
+    LE_OP,
+    LT_OP,
+    GT_OP,
+    GE_OP,
+    EQ_OP,
+    NE_OP
 };
 
 // ==================== Expresiones ====================
@@ -49,7 +54,13 @@ class NumberExp : public Exp {
 public:
     int value;
     bool esBool;    // true si viene de los literales true / false
+    Type::Kind tipo; // int, bool , float, etc
+    double valorFloat = 0; //valor de un literal float
+    string texto; //contenido de un literal string
     NumberExp(int v, bool esBool = false);
+    static NumberExp* crearChar(char c);
+    static NumberExp* crearFloat(double d);
+    static NumberExp* crearString(const string& s);
     Type accept(Visitor* visitor) override;
     ~NumberExp();
 };
@@ -104,11 +115,11 @@ public:
     ~AssignStmt();
 };
 
-// Sentencia de impresión: print(e)
+// Sentencia de impresión: cout << e1 << ... << endl
 class PrintStmt : public Stmt {
 public:
-    Exp* e;
-    PrintStmt(Exp*);
+    vector<Exp*> expresiones;
+    PrintStmt(vector<Exp*>);
     void accept(Visitor* visitor) override;
     ~PrintStmt();
 };
