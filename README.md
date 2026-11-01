@@ -121,8 +121,56 @@ Factor   ::= NUM | "true" | "false" | "(" CExp ")" | ID
 
 - Solo existe el comparador `<=` (sin `<`, `>`, `>=`, `==`, `!=`, `&&`, `||`, `!`).
 - `cout` solo admite `cout << expr << endl;`.
-- Las declaraciones van al nivel de la función (no dentro de `if/while/do`) y se elevan al inicio.
+- Las declaraciones van al nivel de la función (no dentro de `if/while/do`) y se procesan en su orden original; una variable no puede usarse antes de declararla.
 - Solo tipos `int` y `bool` (sin `void`, cadenas, arreglos ni `for`).
 - `max/min` con más de 2 argumentos y `count` son extensiones de lo trabajado en clase, no C++ estándar.
 
 Se corregirán estas limitaciones conforme se vaya escalando más el compilador.
+
+## Pruebas automáticas
+
+Desde la raíz del repositorio, en Ubuntu o WSL x86-64:
+
+```bash
+python3 run_tests.py
+```
+
+La suite ejecuta 33 pruebas usando únicamente la biblioteca estándar de Python,
+`g++` y `gcc`. Compila en directorios temporales, sin modificar `inputs/` ni
+`outputs/`, y termina con un código distinto de cero si alguna prueba falla.
+
+- Compara la salida y el código de retorno con `g++ -std=c++17 -O0` para
+  programas válidos del subconjunto soportado.
+- Verifica que se rechacen paréntesis sin cerrar, variables usadas antes de su
+  declaración e inicializadores que hacen referencia a variables posteriores,
+  incluso dentro de una declaración con comas.
+- Comprueba el `return` explícito de `main` y el retorno implícito de cero.
+- Comprueba el diagnóstico y la terminación controlada al dividir entre cero,
+  también dentro de expresiones anidadas y llamadas a funciones. Las ramas
+  que no se ejecutan no provocan el error.
+- Verifica los ocho inputs existentes. `input6` e `input7` deben rechazarse;
+  `input8` se contrasta con su salida esperada porque usa las extensiones
+  `max`, `min` y `count`, no C++ estándar.
+- Verifica que `run_all_inputs.py` conserve en el reporte tanto la salida como
+  el código de retorno y los diagnósticos de ejecución.
+
+## Correcciones de validación y ejecución
+
+Las declaraciones y sus inicializadores se conservan en el orden del código
+fuente dentro del AST. Por ejemplo, `int a = 2, b = a + 3;` es válido, mientras
+que `int a = b, b = 2;` se rechaza porque `b` todavía no está declarada.
+
+El programa generado respeta el valor de `return` de `main`. El ejecutable del
+compilador, que también ejecuta el programa, muestra `Codigo de salida del
+programa: N` y devuelve ese mismo código. Un `return 7;` produce código 7;
+no se presenta como error de ensamblado. En Ubuntu/WSL el código visible del
+proceso está limitado a los ocho bits habituales (por ejemplo, `return -1;`
+produce 255).
+
+Antes de cada división, el ensamblador comprueba si el divisor es cero.
+En ese caso escribe `Error de ejecucion: division entre cero.` en stderr y
+termina con código 1. La salida previa se conserva. Este control no incluye
+todavía otras comprobaciones, como desbordamiento aritmético.
+
+`run_all_inputs.py` sigue siendo una herramienta para generar el reporte;
+`run_tests.py` es la que verifica automáticamente los resultados esperados.

@@ -126,14 +126,15 @@ BreakStmt::~BreakStmt() {}
 VarDec::VarDec() {}
 
 // Destructor de VarDec
-VarDec::~VarDec() {}
+VarDec::~VarDec() {
+    for (Exp* e : inicializadores) delete e;
+}
 
 // Crea un cuerpo vacío
 Body::Body() {}
 
-// Libera las declaraciones y las sentencias
+// Libera las sentencias, incluidas las declaraciones y sus inicializadores
 Body::~Body() {
-    for (VarDec* d : declaraciones) delete d;
     for (Stmt* s : sentencias) delete s;
 }
 

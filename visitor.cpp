@@ -72,6 +72,8 @@ Type GencodeVisitor::visit(BinaryExp* exp) {
             out << "imulq %rcx, %rax" << endl;
             break;
         case DIV_OP:
+            out << "cmpq $0, %rcx" << endl;
+            out << "je .Lerror_division_cero" << endl;
             out << "cqto" << endl;                 // extiende el signo de %rax a %rdx
             out << "idivq %rcx" << endl;           // cociente en %rax
             break;
@@ -261,16 +263,22 @@ void GencodeVisitor::visit(ReturnStmt* stm) {
 
 // Declara cada variable en el nivel actual: le asigna una posición en la pila y su tipo
 void GencodeVisitor::visit(VarDec* dec) {
-    for (const string& v : dec->variables) {
+    for (size_t i = 0; i < dec->variables.size(); i++) {
+        const string& v = dec->variables[i];
         posicion.add_var(v, contador++);
         tipos.add_var(v, tipoDe(dec->tipo));
-        out << "movq $0, " << posicion.lookup(v) * -TAM_VARIABLE << "(%rbp)" << endl;   // inicia en 0 / false
+        if (dec->inicializadores[i]) {
+            Type t = dec->inicializadores[i]->accept(this);
+            tipos.update(v, t);
+            out << "movq %rax, " << posicion.lookup(v) * -TAM_VARIABLE << "(%rbp)" << endl;
+        } else {
+            out << "movq $0, " << posicion.lookup(v) * -TAM_VARIABLE << "(%rbp)" << endl;
+        }
     }
 }
 
-// Procesa primero las declaraciones y luego las sentencias
+// Procesa las declaraciones y las demás sentencias en su orden original
 void GencodeVisitor::visit(Body* body) {
-    for (VarDec* d : body->declaraciones) d->accept(this);
     for (Stmt* s : body->sentencias) s->accept(this);
 }
 
@@ -301,9 +309,6 @@ void GencodeVisitor::visit(FunDec* fun) {
 
     out << "movq $0, %rax" << endl;            // si no hubo return, devuelve 0
     out << ".Lfin_" << fun->nombre << ":" << endl;
-    if (fun->nombre == "main") {
-        out << "movq $0, %rax" << endl;        // main siempre termina con código 0
-    }
     out << "leave" << endl;
     out << "ret" << endl;
 
@@ -317,9 +322,19 @@ void GencodeVisitor::visit(Programa* program) {
 
     out << ".data" << endl;
     out << "print_fmt:.string \"%ld\\n\" " << endl;
+    out << ".Lmensaje_division_cero:.string \"Error de ejecucion: division entre cero.\\n\"" << endl;
     out << ".text" << endl;
     out << ".globl main" << endl;
     for (FunDec* f : program->funciones) f->accept(this);
+    // Se llega por salto desde cualquier expresión. No retorna y realinea la
+    // pila, incluso si había operandos pendientes o llamadas recursivas.
+    out << ".Lerror_division_cero:" << endl;
+    out << "andq $-16, %rsp" << endl;
+    out << "leaq .Lmensaje_division_cero(%rip), %rdi" << endl;
+    out << "movq stderr(%rip), %rsi" << endl;
+    out << "call fputs@PLT" << endl;
+    out << "movl $1, %edi" << endl;
+    out << "call exit@PLT" << endl;
     out << ".section .note.GNU-stack,\"\",@progbits" << endl;
 }
 
@@ -509,18 +524,25 @@ void TypeChecker::visit(VarDec* dec) {
     if (dec->tipo != "int" && dec->tipo != "bool") {
         error("tipo desconocido: " + dec->tipo);
     }
-    for (const string& v : dec->variables) {
+    for (size_t i = 0; i < dec->variables.size(); i++) {
+        const string& v = dec->variables[i];
         if (tipos.check(v)) {
             error("variable declarada dos veces: " + v);
         }
         tipos.add_var(v, tipoDe(dec->tipo));
         numVariables[funcionActual->nombre]++;      // una variable local más
+        if (dec->inicializadores[i]) {
+            Type t = dec->inicializadores[i]->accept(this);
+            if (t.kindName() != dec->tipo) {
+                error("no se puede asignar " + t.kindName() + " a la variable "
+                      + dec->tipo + " " + v);
+            }
+        }
     }
 }
 
-// Primero las declaraciones, luego las sentencias
+// Las variables se registran cuando se alcanza su declaración, no antes
 void TypeChecker::visit(Body* body) {
-    for (VarDec* d : body->declaraciones) d->accept(this);
     for (Stmt* s : body->sentencias) s->accept(this);
 }
 
