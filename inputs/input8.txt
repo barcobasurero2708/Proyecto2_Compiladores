@@ -17,8 +17,8 @@ int main() {
         i = i + 1;
     }
     cout << acum << endl;
-    cout << max(3, 9, 4) << endl;
-    cout << min(3, 9, 4) << endl;
-    cout << count(1 <= 2, 5 <= 2, true) << endl;
+    cout << max(max(3, 9), 4) << endl;
+    cout << min(min(3, 9), 4) << endl;
+    cout << (1 <= 2) + (5 <= 2) + true << endl;
     return 0;
 }
