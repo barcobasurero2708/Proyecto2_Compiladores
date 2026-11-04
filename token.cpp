@@ -25,7 +25,6 @@ ostream& operator<<(ostream& outs, const Token& tok) {
         case Token::POW:      outs << "TOKEN(POW, \""      << tok.text << "\")"; break;
         case Token::LPAREN:   outs << "TOKEN(LPAREN, \""   << tok.text << "\")"; break;
         case Token::RPAREN:   outs << "TOKEN(RPAREN, \""   << tok.text << "\")"; break;
-        case Token::SQRT:     outs << "TOKEN(SQRT, \""     << tok.text << "\")"; break;
         case Token::NUM:      outs << "TOKEN(NUM, \""      << tok.text << "\")"; break;
         case Token::ERR:      outs << "TOKEN(ERR, \""      << tok.text << "\")"; break;
         case Token::ID:       outs << "TOKEN(ID, \""       << tok.text << "\")"; break;
@@ -42,9 +41,6 @@ ostream& operator<<(ostream& outs, const Token& tok) {
         case Token::TRUE:     outs << "TOKEN(TRUE, \""     << tok.text << "\")"; break;
         case Token::FALSE:    outs << "TOKEN(FALSE, \""    << tok.text << "\")"; break;
         case Token::RETURN:   outs << "TOKEN(RETURN, \""   << tok.text << "\")"; break;
-        case Token::MAX:      outs << "TOKEN(MAX, \""      << tok.text << "\")"; break;
-        case Token::MIN:      outs << "TOKEN(MIN, \""      << tok.text << "\")"; break;
-        case Token::COUNT:    outs << "TOKEN(COUNT, \""    << tok.text << "\")"; break;
         case Token::LBRACE:    outs << "TOKEN(LBRACE, \""    << tok.text << "\")"; break;
         case Token::RBRACE:    outs << "TOKEN(RBRACE, \""    << tok.text << "\")"; break;
         case Token::SHL:       outs << "TOKEN(SHL, \""       << tok.text << "\")"; break;
@@ -68,6 +64,20 @@ ostream& operator<<(ostream& outs, const Token& tok) {
         case Token::TCHAR:     outs << "TOKEN(TCHAR, \""    << tok.text << "\")"; break;
         case Token::TFLOAT:    outs << "TOKEN(TFLOAT, \""   << tok.text << "\")"; break;
         case Token::TSTRING:   outs << "TOKEN(TSTRING, \""  << tok.text << "\")"; break;
+        case Token::TDOUBLE:   outs << "TOKEN(TDOUBLE, \""  << tok.text << "\")"; break;
+        case Token::TLONG:     outs << "TOKEN(TLONG, \""    << tok.text << "\")"; break;
+        case Token::TVOID:     outs << "TOKEN(TVOID, \""    << tok.text << "\")"; break;
+        case Token::RESERVED:  outs << "TOKEN(RESERVED, \"" << tok.text << "\")"; break;
+        case Token::MOD:       outs << "TOKEN(MOD, \"" << tok.text << "\")"; break;
+        case Token::AND:       outs << "TOKEN(AND, \"" << tok.text << "\")"; break;
+        case Token::OR:        outs << "TOKEN(OR, \"" << tok.text << "\")"; break;
+        case Token::NOT:       outs << "TOKEN(NOT, \"" << tok.text << "\")"; break;
+        case Token::INC:       outs << "TOKEN(INC, \"" << tok.text << "\")"; break;
+        case Token::DEC:       outs << "TOKEN(DEC, \"" << tok.text << "\")"; break;
+        case Token::FOR:       outs << "TOKEN(FOR, \"" << tok.text << "\")"; break;
+        case Token::CONTINUE:  outs << "TOKEN(CONTINUE, \"" << tok.text << "\")"; break;
+        case Token::LBRACKET:  outs << "TOKEN(LBRACKET, \"" << tok.text << "\")"; break;
+        case Token::RBRACKET:  outs << "TOKEN(RBRACKET, \"" << tok.text << "\")"; break;
         case Token::END:      outs << "TOKEN(END)"; break;
     }
     return outs;

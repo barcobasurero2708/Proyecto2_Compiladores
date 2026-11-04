@@ -1,6 +1,8 @@
 #include <iostream>
 #include <cstring>
 #include <fstream>
+#include <map>
+#include <set>
 #include "token.h"
 #include "scanner.h"
 
@@ -9,6 +11,39 @@ using namespace std;
 // Indica si el carácter es un espacio en blanco
 bool is_white_space(char c) {
     return c == ' ' || c == '\n' || c == '\r' || c == '\t';
+}
+
+// Palabras reservadas de C++ (C++20) que el subconjunto no implementa: no pueden
+// usarse como identificadores, igual que en C++.
+static const set<string> RESERVADAS = {
+    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "case", "catch",
+    "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const", "consteval",
+    "constexpr", "constinit", "const_cast", "co_await", "co_return", "co_yield",
+    "decltype", "default", "delete", "dynamic_cast", "enum", "explicit", "export", "extern",
+    "friend", "goto", "inline", "mutable", "new", "noexcept", "not", "not_eq", "nullptr",
+    "operator", "or", "or_eq", "private", "protected", "public", "register", "reinterpret_cast",
+    "requires", "short", "signed", "sizeof", "static", "static_assert", "static_cast", "struct",
+    "switch", "template", "this", "thread_local", "throw", "try", "typedef", "typeid",
+    "typename", "union", "unsigned", "virtual", "volatile", "wchar_t", "xor", "xor_eq"
+};
+
+// Tipo de token de una palabra: palabra clave, reservada o identificador
+static Token::Type tipoPalabra(const string& p) {
+    static const map<string, Token::Type> CLAVES = {
+        {"if", Token::IF}, {"while", Token::WHILE}, {"do", Token::DO}, {"else", Token::ELSE},
+        {"break", Token::BREAK}, {"true", Token::TRUE}, {"false", Token::FALSE},
+        {"return", Token::RETURN}, {"int", Token::TINT}, {"bool", Token::TBOOL},
+        {"char", Token::TCHAR}, {"float", Token::TFLOAT}, {"double", Token::TDOUBLE},
+        {"long", Token::TLONG}, {"void", Token::TVOID}, {"using", Token::USING},
+        {"namespace", Token::NAMESPACE}, {"for", Token::FOR}, {"continue", Token::CONTINUE},
+        // cout, endl y string no son palabras clave en C++, sino nombres de std
+        // (el parser exige 'using namespace std;' o el prefijo std::)
+        {"cout", Token::COUT}, {"endl", Token::ENDL}, {"string", Token::TSTRING}
+    };
+    auto it = CLAVES.find(p);
+    if (it != CLAVES.end()) return it->second;
+    if (RESERVADAS.count(p)) return Token::RESERVED;
+    return Token::ID;
 }
 
 // Inicializa el scanner al inicio de la entrada
@@ -57,40 +92,48 @@ Token* Scanner::nextToken() {
         while (current < input.length() && (isalnum(input[current]) || input[current] == '_'))
             current++;
         string lexema = input.substr(first, current - first);
-        if (lexema == "sqrt")           return new Token(Token::SQRT,      input, first, current - first);
-        else if (lexema == "if")        return new Token(Token::IF,        input, first, current - first);
-        else if (lexema == "while")     return new Token(Token::WHILE,     input, first, current - first);
-        else if (lexema == "do")        return new Token(Token::DO,        input, first, current - first);
-        else if (lexema == "else")      return new Token(Token::ELSE,      input, first, current - first);
-        else if (lexema == "break")     return new Token(Token::BREAK,     input, first, current - first);
-        else if (lexema == "true")      return new Token(Token::TRUE,      input, first, current - first);
-        else if (lexema == "false")     return new Token(Token::FALSE,     input, first, current - first);
-        else if (lexema == "return")    return new Token(Token::RETURN,    input, first, current - first);
-        else if (lexema == "max")       return new Token(Token::MAX,       input, first, current - first);
-        else if (lexema == "min")       return new Token(Token::MIN,       input, first, current - first);
-        else if (lexema == "count")     return new Token(Token::COUNT,     input, first, current - first);
-        else if (lexema == "int")       return new Token(Token::TINT,      input, first, current - first);
-        else if (lexema == "bool")      return new Token(Token::TBOOL,     input, first, current - first);
-        else if (lexema == "cout")      return new Token(Token::COUT,      input, first, current - first);
-        else if (lexema == "endl")      return new Token(Token::ENDL,      input, first, current - first);
-        else if (lexema == "using")     return new Token(Token::USING,     input, first, current - first);
-        else if (lexema == "namespace") return new Token(Token::NAMESPACE, input, first, current - first);
-        else if (lexema == "char")      return new Token(Token::TCHAR,     input, first, current - first);
-        else if (lexema == "float")     return new Token(Token::TFLOAT,    input, first, current - first);
-        else if (lexema == "double")    return new Token(Token::TFLOAT,    input, first, current - first);
-        else if (lexema == "string")    return new Token(Token::TSTRING,   input, first, current - first);
-        else                            return new Token(Token::ID,        input, first, current - first);
+
+        // Nombre calificado std::nombre (se permiten espacios alrededor de '::')
+        if (lexema == "std") {
+            int k = current, n = input.length();
+            while (k < n && is_white_space(input[k])) k++;
+            if (k + 1 < n && input[k] == ':' && input[k + 1] == ':') {
+                k += 2;
+                while (k < n && is_white_space(input[k])) k++;
+                if (k < n && (isalpha(input[k]) || input[k] == '_')) {
+                    int inicio = k;
+                    while (k < n && (isalnum(input[k]) || input[k] == '_')) k++;
+                    string nombre = input.substr(inicio, k - inicio);
+                    current = k;
+                    Token::Type t = Token::ID;
+                    if (nombre == "cout")        t = Token::COUT;
+                    else if (nombre == "endl")   t = Token::ENDL;
+                    else if (nombre == "string") t = Token::TSTRING;
+                    token = new Token(t);
+                    token->text = "std::" + nombre;
+                    return token;
+                }
+            }
+        }
+        return new Token(tipoPalabra(lexema), input, first, current - first);
     }
     else if (c == '#') {
-        // para que solo acepte cuando hay #include <iostream> para las impresiones
+        // Solo se admite la directiva #include <cabecera>; el parser valida qué cabecera es
         int fin = current;
         while (fin < (int)input.length() && input[fin] != '\n') fin++;
         string linea = input.substr(first, fin - first);
         string compacta;
         for (char ch : linea) if (!is_white_space(ch)) compacta += ch;
         current = fin;
-        if (compacta == "#include<iostream>") token = new Token(Token::INCLUDE, input, first, fin - first);
-        else                                  token = new Token(Token::ERR,     input, first, fin - first);
+        const string prefijo = "#include<";
+        if (compacta.size() > prefijo.size() + 1 && compacta.compare(0, prefijo.size(), prefijo) == 0
+            && compacta.back() == '>') {
+            token = new Token(Token::INCLUDE);
+            token->text = compacta.substr(prefijo.size(), compacta.size() - prefijo.size() - 1);
+        }
+        else {
+            token = new Token(Token::ERR, input, first, fin - first);
+        }
     }
     else if (c == '\'' || c == '"') {
         // Literal char ('a', '\n') o string ("hola")
@@ -107,10 +150,47 @@ Token* Scanner::nextToken() {
             token = new Token(c == '\'' ? Token::CHARLIT : Token::STRLIT, input, first, current - first);
         }
     }
-    else if (strchr("+/-*();=<>!,{}?:", c)) {
+    else if (strchr("+/-*%();=<>!,{}[]?:&|", c)) {
         switch (c) {
-            case '+': token = new Token(Token::PLUS,     c); break;
-            case '-': token = new Token(Token::MINUS,    c); break;
+            case '+':
+                if (input[current + 1] == '+') { // incremento ++
+                    current++;
+                    token = new Token(Token::INC, input, first, current + 1 - first);
+                }
+                else {
+                    token = new Token(Token::PLUS, c);
+                }
+                break;
+            case '-':
+                if (input[current + 1] == '-') { // decremento --
+                    current++;
+                    token = new Token(Token::DEC, input, first, current + 1 - first);
+                }
+                else {
+                    token = new Token(Token::MINUS, c);
+                }
+                break;
+            case '%': token = new Token(Token::MOD,      c); break;
+            case '[': token = new Token(Token::LBRACKET, c); break;
+            case ']': token = new Token(Token::RBRACKET, c); break;
+            case '&':
+                if (input[current + 1] == '&') { // y lógico
+                    current++;
+                    token = new Token(Token::AND, input, first, current + 1 - first);
+                }
+                else {
+                    token = new Token(Token::ERR, c);
+                }
+                break;
+            case '|':
+                if (input[current + 1] == '|') { // o lógico
+                    current++;
+                    token = new Token(Token::OR, input, first, current + 1 - first);
+                }
+                else {
+                    token = new Token(Token::ERR, c);
+                }
+                break;
             case '/': token = new Token(Token::DIV,      c); break;
             case '*': token = new Token(Token::MUL,      c); break;
             case '(': token = new Token(Token::LPAREN,   c); break;
@@ -157,8 +237,8 @@ Token* Scanner::nextToken() {
                     current++;
                     token = new Token(Token::NE, input, first, current + 1 - first);
                 }
-                else {
-                    token = new Token(Token::ERR, c);
+                else {                           // negación lógica
+                    token = new Token(Token::NOT, c);
                 }
                 break;
         }

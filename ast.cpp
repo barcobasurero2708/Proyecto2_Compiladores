@@ -20,6 +20,9 @@ string Exp::binopToChar(BinaryOp op) {
         case GE_OP:    return ">=";
         case EQ_OP:    return "==";
         case NE_OP:    return "!=";
+        case MOD_OP:   return "%";
+        case AND_OP:   return "&&";
+        case OR_OP:    return "||";
         default:       return "?";
     }
 }
@@ -34,8 +37,15 @@ BinaryExp::~BinaryExp() {
     delete right;
 }
 
-// Crea un literal entero
-NumberExp::NumberExp(int v, bool b)  : value(v), esBool(b), tipo(b ? Type::BOOL : Type::INT){}
+// Crea un literal entero (int) o booleano
+NumberExp::NumberExp(long long v, bool b)  : value(v), esBool(b), tipo(b ? Type::BOOL : Type::INT){}
+
+// Crea un literal entero que no cabe en int (en C++ su tipo es long)
+NumberExp* NumberExp::crearLong(long long v) {
+    NumberExp* e = new NumberExp(v);
+    e->tipo = Type::LONG;
+    return e;
+}
 
 // Crea un literal char
 NumberExp* NumberExp::crearChar(char c) {
@@ -44,10 +54,10 @@ NumberExp* NumberExp::crearChar(char c) {
     return e;
 }
 
-// Crea un literal float
-NumberExp* NumberExp::crearFloat(double d) {
+// Crea un literal de punto flotante (en C++ 1.5 es double)
+NumberExp* NumberExp::crearDouble(double d) {
     NumberExp* e = new NumberExp(0);
-    e->tipo = Type::FLOAT;
+    e->tipo = Type::DOUBLE;
     e->valorFloat = d;
     return e;
 }
@@ -80,17 +90,26 @@ IfExp::~IfExp() {
     delete elseExp;
 }
 
-MaxMinExp::MaxMinExp(bool esMax) : esMax(esMax) {}
+// Crea la expresión -e o !e
+UnaryExp::UnaryExp(Exp* e, UnaryOp op) : e(e), op(op) {}
 
-MaxMinExp::~MaxMinExp() {
-    for (Exp* e : argumentos) delete e;
+UnaryExp::~UnaryExp() {
+    delete e;
 }
 
-// Crea un count sin argumentos
-CountExp::CountExp() {}
+// Crea un acceso a arreglo
+ArrayExp::ArrayExp(string nombre, vector<Exp*> indices) : nombre(nombre), indices(indices) {}
 
-CountExp::~CountExp() {
-    for (Exp* e : argumentos) delete e;
+ArrayExp::~ArrayExp() {
+    for (Exp* i : indices) delete i;
+}
+
+// Crea un incremento o decremento
+IncDecExp::IncDecExp(string nombre, vector<Exp*> indices, bool incremento, bool prefijo)
+    : nombre(nombre), indices(indices), incremento(incremento), prefijo(prefijo) {}
+
+IncDecExp::~IncDecExp() {
+    for (Exp* i : indices) delete i;
 }
 
 // Destructor de Stmt
@@ -102,15 +121,22 @@ AssignStmt::AssignStmt(string variable, Exp* expresion) {
     e = expresion;
 }
 
+// Crea una asignación a un elemento de arreglo
+AssignStmt::AssignStmt(string variable, vector<Exp*> indices, Exp* expresion)
+    : id(variable), indices(indices), e(expresion) {}
+
 // Destructor de AssignStmt
-AssignStmt::~AssignStmt() {}
+AssignStmt::~AssignStmt() {
+    for (Exp* i : indices) delete i;
+    delete e;
+}
 
 // Crea una sentencia print con todas sus expresiones
 PrintStmt::PrintStmt(vector<Exp*> expresiones) : expresiones(expresiones) {}
 
 // Destructor de PrintStmt
 PrintStmt::~PrintStmt() {
-    for (Exp* expresion : expresiones) delete expresion;
+    for (Exp* expresion : expresiones) delete expresion;   // delete nullptr (endl) no hace nada
 }
 
 // Crea un if con su condición, rama then y rama else (puede estar vacía)
@@ -144,6 +170,36 @@ DoWhileStmt::~DoWhileStmt() {
     delete condicion;
 }
 
+// Crea un bloque vacío (el parser agrega las sentencias)
+BlockStmt::BlockStmt() {}
+
+BlockStmt::~BlockStmt() {
+    for (Stmt* s : sentencias) delete s;
+}
+
+// Crea una sentencia de expresión
+ExprStmt::ExprStmt(Exp* e) : e(e) {}
+
+ExprStmt::~ExprStmt() {
+    delete e;
+}
+
+// Crea un for con sus tres partes (cualquiera puede ser nullptr) y su cuerpo
+ForStmt::ForStmt(Stmt* init, Exp* condicion, Stmt* actualizacion, list<Stmt*> body)
+    : init(init), condicion(condicion), actualizacion(actualizacion), body(body) {}
+
+ForStmt::~ForStmt() {
+    delete init;
+    delete condicion;
+    delete actualizacion;
+    for (Stmt* s : body) delete s;
+}
+
+// Crea una sentencia continue
+ContinueStmt::ContinueStmt() {}
+
+ContinueStmt::~ContinueStmt() {}
+
 // Crea una sentencia break
 BreakStmt::BreakStmt() {}
 
@@ -156,6 +212,8 @@ VarDec::VarDec() {}
 // Destructor de VarDec
 VarDec::~VarDec() {
     for (Exp* e : inicializadores) delete e;
+    for (auto& lista : listas)
+        for (Exp* e : lista) delete e;
 }
 
 // Crea un cuerpo vacío

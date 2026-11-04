@@ -17,7 +17,6 @@ public:
         POW, 
         LPAREN, 
         RPAREN, 
-        SQRT, 
         NUM, 
         ERR, 
         ID, 
@@ -34,9 +33,6 @@ public:
         TRUE, 
         FALSE,
         RETURN, 
-        MAX, 
-        MIN, 
-        COUNT,
         LBRACE, 
         RBRACE, 
         SHL, 
@@ -60,6 +56,20 @@ public:
         TCHAR,
         TFLOAT,
         TSTRING,
+        TDOUBLE,     // double
+        TLONG,       // long
+        TVOID,       // void (solo en int main(void))
+        RESERVED,    // palabra reservada de C++ que el subconjunto no usa
+        MOD,         // %
+        AND,         // &&
+        OR,          // ||
+        NOT,         // !
+        INC,         // ++
+        DEC,         // --
+        FOR,
+        CONTINUE,
+        LBRACKET,    // [
+        RBRACKET,    // ]
         END
     };
 
