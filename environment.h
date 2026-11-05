@@ -66,6 +66,12 @@ public:
     // Indica si la variable está declarada en algún nivel
     [[nodiscard]] bool check(const std::string& x) const { return search_rib(x) >= 0; }
 
+    // Indica si la variable está declarada en el nivel más interno (para detectar
+    // redeclaraciones; en un nivel interior sí se permite ocultar una variable externa)
+    [[nodiscard]] bool check_local(const std::string& x) const {
+        return !ribs.empty() && ribs.back().count(x) > 0;
+    }
+
     // Devuelve el valor de la variable, o T{} si no existe
     [[nodiscard]] T lookup(const std::string& x) const {
         const int idx = search_rib(x);

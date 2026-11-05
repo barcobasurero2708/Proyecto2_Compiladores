@@ -2,20 +2,31 @@
 #define TYPE_H
 
 #include <string>
+#include <vector>
 #include <ostream>
 
 using namespace std;
 
-// Resultado de visitar un nodo del AST: su tipo y su valor.
-// El valor se guarda en el atributo que corresponde al tipo:
-//   INT  -> intValue
-//   BOOL -> boolValue
-//   VOID -> ninguno (sentencias)
+// Tipo de un nodo del AST.
+// En tiempo de ejecución todo valor ocupa 64 bits:
+//   INT    -> entero de 32 bits, guardado con extensión de signo
+//   LONG   -> entero de 64 bits
+//   CHAR   -> entero de 8 bits con signo, guardado con extensión de signo
+//   BOOL   -> 0 o 1
+//   FLOAT  -> bits de un double cuyo valor está redondeado a precisión float
+//   DOUBLE -> bits de un double
+//   STRING -> puntero a una cadena terminada en '\0'
+// Un arreglo es un Type con dimensiones: kind es el tipo de sus elementos.
+// Cada elemento ocupa 8 bytes y el arreglo se maneja con un puntero a su primer elemento.
 class Type {
 public:
-    enum Kind { VOID, INT, BOOL };
+
+    enum Kind { VOID, INT, BOOL, CHAR, FLOAT, DOUBLE, LONG, STRING };
+
+    static Type deKind(Kind k);
 
     Kind kind;
+    vector<int> dims;             // dimensiones si es arreglo: int m[2][3] -> {2, 3}; 0 = sin tamaño (parámetro int a[])
     int intValue;
     bool boolValue;
 
@@ -26,7 +37,19 @@ public:
     bool isInt() const;
     bool isBool() const;
     bool isVoid() const;
+    bool isChar() const;
+    bool isFloat() const;         // float o double
+    bool isString() const;
+    bool isNumeric() const;       // tipo aritmético de C++: bool, char, int, long, float, double
+    bool isArray() const;
     string kindName() const;
+
+    // Reglas de C++ sobre tipos aritméticos
+    static bool esAritmetico(Kind k);
+    static bool esFlotante(Kind k);
+    static Kind promover(Kind k);            // promoción entera: bool y char -> int
+    static Kind comun(Kind a, Kind b);       // conversiones aritméticas usuales
+    static string nombre(Kind k);
 
     friend ostream& operator<<(ostream& outs, const Type& t);
 };

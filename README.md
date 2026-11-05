@@ -16,7 +16,7 @@ Se desarolladrá un compilador de un **subconjunto de C++** (aritmética y sente
 - `scanner.h` / `scanner.cpp`: análisis léxico (`nextToken`, `ejecutar_scanner`).
 - `parser.h` / `parser.cpp`: análisis sintáctico.
 - `ast.h` / `ast.cpp`: nodos del AST (expresiones, sentencias, declaraciones).
-- `type.h` / `type.cpp`: `Type` (int, bool, void) con su valor.
+- `type.h` / `type.cpp`: `Type` (int, long, bool, char, float, double, string) y las reglas de conversión aritmética.
 - `environment.h`: entorno con niveles (scopes) para variables.
 - `visitor.h` / `visitor.cpp`: `TypeChecker` y `GencodeVisitor`.
 - `run_all_inputs.py`: compila y corre todos los archivos de `inputs/`, y deja los `.s` y el reporte en `outputs/`.
@@ -73,59 +73,131 @@ Estos pasos son solo para pruebas personales de las fases iniciales, serán inne
 ## Gramática aceptada
 
 ```
-Programa ::= "#include <iostream>" "using" "namespace" "std" ";" FunDec+
-FunDec   ::= Tipo ID "(" [ Tipo ID { "," Tipo ID } ] ")" "{" Body "}"
-Tipo     ::= "int" | "bool"
-Body     ::= { VarDec | Stmt }
-VarDec   ::= Tipo ID [ "=" CExp ] { "," ID [ "=" CExp ] } ";"
+Programa ::= { "#include" "<" ("iostream" | "string") ">"
+             | "using" "namespace" "std" ";"
+             | FunDec }
+FunDec   ::= ( Tipo | "void" ) ID "(" [ "void" | Param { "," Param } ] ")" ( "{" Body "}" | ";" )
+Param    ::= Tipo [ ID ] { "[" [ NUM ] "]" }
+Tipo     ::= "int" | "long" ["long"] ["int"] | "bool" | "char" | "float" | "double" | "string"
+Body     ::= { Stmt }
+VarDec   ::= Tipo Decl { "," Decl } ";"
+Decl     ::= ID [ "=" CExp ]
+           | ID Dims [ "=" Lista ]
+Dims     ::= "[" [ NUM ] "]" { "[" NUM "]" }
+Lista    ::= "{" [ ( Lista | CExp ) { "," ( Lista | CExp ) } [ "," ] ] "}"
 
-Stmt     ::= ID "=" CExp ";"
-           | "cout" "<<" CExp "<<" "endl" ";"
-           | "if" "(" CExp ")" Block [ "else" Block ]
-           | "while" "(" CExp ")" Block
-           | "do" Block "while" "(" CExp ")" ";"
+Stmt     ::= VarDec
+           | "{" { Stmt } "}"
+           | ";"
+           | "cout" { "<<" ( "endl" | BExp ) } ";"
+           | "if" "(" CExp ")" Stmt [ "else" Stmt ]
+           | "while" "(" CExp ")" Stmt
+           | "do" Stmt "while" "(" CExp ")" ";"
+           | "for" "(" ( VarDec | [ Simple ] ";" ) [ CExp ] ";" [ Simple ] ")" Stmt
            | "break" ";"
-           | "return" CExp ";"
-Block    ::= "{" { Stmt } "}" | Stmt
+           | "continue" ";"
+           | "return" [ CExp ] ";"
+           | Simple ";"
+Simple   ::= ID { "[" CExp "]" } "=" CExp
+           | CExp
 
-CExp     ::= Rel [ "?" CExp ":" CExp ]
-Rel      ::= BExp [ "<=" BExp ]
+CExp     ::= Or [ "?" CExp ":" CExp ]
+Or       ::= And { "||" And }
+And      ::= Eq { "&&" Eq }
+Eq       ::= Rel { ("==" | "!=") Rel }
+Rel      ::= BExp { ("<" | "<=" | ">" | ">=") BExp }
 BExp     ::= Expr { ("+" | "-") Expr }
-Expr     ::= Term { ("*" | "/") Term }
-Term     ::= "-" Term | Factor
-Factor   ::= NUM | "true" | "false" | "(" CExp ")" | ID
+Expr     ::= Term { ("*" | "/" | "%") Term }
+Term     ::= "-" Term | "!" Term | ("++" | "--") Term | Factor
+Factor   ::= NUM | FLOATNUM | CHARLIT | STRLIT { STRLIT } | "true" | "false"
+           | "(" CExp ")"
            | ID "(" [ CExp { "," CExp } ] ")"
-           | ("max" | "min") "(" CExp { "," CExp } ")"
-           | "count" "(" [ CExp { "," CExp } ] ")"
+           | ID { "[" CExp "]" } [ "++" | "--" ]
 ```
+
+`cout`, `endl`, `string`, `max` y `min` también se aceptan con el prefijo `std::`.
 
 ### Precedencia (de menor a mayor)
 
 - `? :` (derecha)
-- `<=`
+- `||` (izquierda)
+- `&&` (izquierda)
+- `==` `!=` (izquierda)
+- `<` `<=` `>` `>=` (izquierda)
 - `+` `-` (izquierda)
-- `*` `/` (izquierda)
-- `-` unario
+- `*` `/` `%` (izquierda)
+- `-` `!` `++` `--` prefijos
+- `++` `--` sufijos
 
-### Decisiones de reglas gramaticales
+Como en C++, `<<` tiene más precedencia que las comparaciones y que `?:`. Por eso cada
+operando de `cout` es una expresión aditiva: `cout << a < b;` es un error y se escribe
+`cout << (a < b);`.
 
-- Debe existir `int main()` sin parámetros.
-- Las condiciones de `if`, `while`, `do-while` y `?:` deben ser **bool**.
-- `<=` compara `int` con `int` y devuelve `bool`; `+ - * /` operan sobre `int`.
-- Asignación, argumentos y `return` deben respetar el tipo declarado.
-- `break` solo dentro de un bucle.
-- Máximo 6 parámetros por función; se permite recursión.
-- Los comentarios `//` se ignoran; cualquier otra directiva `#` es error léxico.
+### Reglas que siguen a C++
 
-## Limitaciones de la fase inicial
+- **Tipos**: `int` es de 32 bits (desborda igual que con gcc), `long`/`long long` de 64,
+  `char` de 8 con signo, `float` con precisión simple y `double` con precisión doble. Un literal
+  como `1.5` es `double` y un literal entero que no cabe en `int` es `long`.
+- **Conversiones aritméticas usuales**: `bool` y `char` se promueven a `int`, y en una operación
+  mixta gana `double`, luego `float` y luego `long`. Por ejemplo, `true + true` vale 2 y
+  `1 < 2 < 3` es válido.
+- **Conversiones implícitas** entre todos los tipos aritméticos al asignar, inicializar, pasar
+  argumentos o hacer `return` (`bool b = 5;`, `int x = 2.9;`). Un `string` solo se inicializa
+  con un `string`, aunque `s = 'a';` sí es válido como asignación.
+- **Condiciones** (`if`, `while`, `do`, `?:`): aceptan cualquier tipo aritmético (`while (1)`,
+  `if (x)`). Un `string` no se puede convertir a `bool`.
+- **`?:` con ramas de distinto tipo aritmético**: se convierten al tipo común
+  (`c ? 1 : 2.5` es `double`).
+- **Comparaciones de `string`**: comparan el contenido, como `std::string`.
+- **Ámbitos**: cada bloque `{ }` y cada rama o cuerpo de `if`/`while`/`do` tiene su propio
+  ámbito. Una variable interior puede ocultar a una exterior, y no se permite redeclarar en el
+  mismo ámbito. Los parámetros comparten ámbito con el cuerpo de la función.
+- **Orden de declaración**: una función solo se puede llamar después de su definición o de su
+  prototipo (`int g(int);`). Llamar a un prototipo que no se define es un error, como el error
+  de enlace de C++.
+- **`std`**: `cout`, `endl`, `string`, `max` y `min` requieren `#include <iostream>` (o
+  `<string>` para `string`) y, además, `using namespace std;` antes de usarlos o el prefijo
+  `std::`.
+- **`max(a, b)` y `min(a, b)`**: son `std::max`/`std::min`, con exactamente 2 argumentos del
+  mismo tipo. Si existe una variable o una función propia con ese nombre, se usa esa.
+- **Palabras reservadas**: todas las palabras reservadas de C++ (`for`, `class`, `new`, ...)
+  quedan reservadas aunque el subconjunto no las implemente.
+- `main` debe ser `int main()` o `int main(void)`. Sin `return`, devuelve 0.
+- **`%`**: solo con enteros (`bool`, `char`, `int`, `long`). El signo del resto es el del
+  dividendo (`-7 % 3 == -1`). Dividir o sacar el resto con divisor 0 detiene el programa con un
+  mensaje.
+- **`&&`, `||` y `!`**: aceptan cualquier tipo aritmético y devuelven `bool`. `&&` y `||` se evalúan
+  en cortocircuito: el lado derecho solo se evalúa si hace falta.
+- **`++` y `--`**: prefijo (devuelve el valor nuevo) y sufijo (devuelve el anterior), sobre
+  variables y elementos de arreglo numéricos. Como en C++17, no se permiten sobre `bool`.
+- **`for`**: las tres partes son opcionales. La variable del `init` solo existe dentro del `for`
+  y no puede redeclararse en el bloque del cuerpo. `continue` en un `for` salta a la
+  actualización y en un `while`/`do` a la condición.
+- **Funciones `void`**: `return;` sin valor, y solo se pueden usar como sentencia.
+- **Arreglos y matrices**: de cualquier tipo y con cualquier cantidad de dimensiones
+  (`int a[5]`, `double m[3][3]`), con tamaño literal. Los elementos sin inicializar valen 0 (`""`
+  si son `string`). Se inicializan con `{ ... }` (`int m[2][2] = {{1, 2}, {3, 4}}`) y el tamaño
+  de la primera dimensión puede deducirse (`int a[] = {1, 2, 3}`). Como parámetro se pasan por
+  referencia, igual que en C++ (`int a[]`, `int m[][3]`), y también se puede pasar una fila
+  (`f(m[1])`). No se pueden asignar ni imprimir completos.
 
-- Solo existe el comparador `<=` (sin `<`, `>`, `>=`, `==`, `!=`, `&&`, `||`, `!`).
-- `cout` solo admite `cout << expr << endl;`.
-- Las declaraciones van al nivel de la función (no dentro de `if/while/do`) y se procesan en su orden original; una variable no puede usarse antes de declararla.
-- Solo tipos `int` y `bool` (sin `void`, cadenas, arreglos ni `for`).
-- `max/min` con más de 2 argumentos y `count` son extensiones de lo trabajado en clase, no C++ estándar.
+## Limitaciones (fuera del subconjunto)
 
-Se corregirán estas limitaciones conforme se vaya escalando más el compilador.
+Se rechazan con un mensaje de error:
+
+- `switch`, operadores `^`, `~`, `+=`, `-=`, etc., conversiones explícitas (`(int)x`), punteros,
+  arreglos con tamaño variable y concatenación de `string`.
+- No se verifica que los índices de un arreglo estén dentro del rango (en C++ un acceso fuera de
+  rango tiene comportamiento indefinido).
+- Asignación encadenada (`a = b = 3`) o como expresión.
+- Comentarios `/* */`; literales hexadecimales, con exponente o sufijo (`0x1F`, `1e3`, `1.5f`,
+  `.5`); escapes distintos de `\n \t \0 \\ \' \"`.
+- Sobrecarga de funciones, más de 6 parámetros y cabeceras distintas de `<iostream>` y
+  `<string>`.
+- `cout`, `endl` y `string` se tratan como nombres reservados: no pueden usarse como nombres de
+  variables, aunque en C++ sí sería posible.
+- Los argumentos `double` se pasan en registros enteros. Esto es coherente entre las funciones
+  del programa, pero no sigue la convención System V para llamar a código externo.
 
 ## Pruebas automáticas
 
@@ -135,7 +207,7 @@ Desde la raíz del repositorio, en Ubuntu o WSL x86-64:
 python3 run_tests.py
 ```
 
-La suite ejecuta 33 pruebas usando únicamente la biblioteca estándar de Python,
+La suite ejecuta las pruebas usando únicamente la biblioteca estándar de Python,
 `g++` y `gcc`. Compila en directorios temporales, sin modificar `inputs/` ni
 `outputs/`, y termina con un código distinto de cero si alguna prueba falla.
 
@@ -148,9 +220,7 @@ La suite ejecuta 33 pruebas usando únicamente la biblioteca estándar de Python
 - Comprueba el diagnóstico y la terminación controlada al dividir entre cero,
   también dentro de expresiones anidadas y llamadas a funciones. Las ramas
   que no se ejecutan no provocan el error.
-- Verifica los ocho inputs existentes. `input6` e `input7` deben rechazarse;
-  `input8` se contrasta con su salida esperada porque usa las extensiones
-  `max`, `min` y `count`, no C++ estándar.
+- Verifica los inputs existentes contra g++.
 - Verifica que `run_all_inputs.py` conserve en el reporte tanto la salida como
   el código de retorno y los diagnósticos de ejecución.
 

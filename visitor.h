@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <set>
 #include "ast.h"
 #include "type.h"
 #include "environment.h"
@@ -24,8 +25,9 @@ public:
     virtual Type visit(IdExp* exp) = 0;
     virtual Type visit(IfExp* exp) = 0;
     virtual Type visit(FCallExp* exp) = 0;
-    virtual Type visit(MaxMinExp* exp) = 0;
-    virtual Type visit(CountExp* exp) = 0;
+    virtual Type visit(UnaryExp* exp) = 0;
+    virtual Type visit(ArrayExp* exp) = 0;
+    virtual Type visit(IncDecExp* exp) = 0;
     // Sentencias
     virtual void visit(AssignStmt* stm) = 0;
     virtual void visit(PrintStmt* stm) = 0;
@@ -34,6 +36,10 @@ public:
     virtual void visit(DoWhileStmt* stm) = 0;
     virtual void visit(BreakStmt* stm) = 0;
     virtual void visit(ReturnStmt* stm) = 0;
+    virtual void visit(BlockStmt* stm) = 0;
+    virtual void visit(ExprStmt* stm) = 0;
+    virtual void visit(ForStmt* stm) = 0;
+    virtual void visit(ContinueStmt* stm) = 0;
     // Declaraciones y programa
     virtual void visit(VarDec* dec) = 0;
     virtual void visit(Body* body) = 0;
@@ -48,6 +54,7 @@ public:
 // %rdi, %rsi, %rdx, %rcx, %r8, %r9 y el resultado vuelve en %rax.
 class GencodeVisitor : public Visitor {
 public:
+    vector<string> cadenas;                  // literales del string
     ostream& out;
     TypeChecker* checker;                    // ya ejecutado: dice cuántas variables tiene cada función
     int contador = 1;                        // siguiente posición libre en la pila de la función actual
@@ -55,6 +62,7 @@ public:
     Environment<Type> tipos;                 // tipo de cada variable (y su último valor)
     int etiquetas = 0;                       // contador para generar etiquetas únicas
     vector<string> finDeBucle;               // etiqueta de salida de cada bucle abierto (para break)
+    vector<string> siguienteVuelta;          // etiqueta de la siguiente vuelta de cada bucle (para continue)
     unordered_map<string, FunDec*> funciones; // funciones del programa, por nombre
     string funcionActual;                    // función que se está generando (para return)
     int pila = 0;                            // pushq pendientes (para alinear la pila en cada call)
@@ -62,13 +70,23 @@ public:
     GencodeVisitor(ostream& out, TypeChecker* checker);
     void gencode(Programa* program);
 
+    // Ayudantes de generación
+    void llamar(const string& funcion);                     // call con la pila alineada a 16 bytes
+    void convertir(Type::Kind desde, Type::Kind hacia);     // conversión implícita de C++ sobre %rax
+    void aritmetica(BinaryOp op, Type::Kind tipo);          // %rax = %rax op %rcx
+    void comparar(BinaryOp op, Type::Kind tipo);            // %rax = (%rax op %rcx) ? 1 : 0
+    void condicion(Exp* e);                                 // evalúa e convertida a bool
+    void direccion(const string& nombre, const vector<Exp*>& indices);  // %rax = dirección de la variable o elemento
+    void cuerpoDeFor(ForStmt* stm);
+
     Type visit(BinaryExp* exp) override;
     Type visit(NumberExp* exp) override;
     Type visit(IdExp* exp) override;
     Type visit(IfExp* exp) override;
     Type visit(FCallExp* exp) override;
-    Type visit(MaxMinExp* exp) override;
-    Type visit(CountExp* exp) override;
+    Type visit(UnaryExp* exp) override;
+    Type visit(ArrayExp* exp) override;
+    Type visit(IncDecExp* exp) override;
     void visit(AssignStmt* stm) override;
     void visit(PrintStmt* stm) override;
     void visit(IfStmt* stm) override;
@@ -76,6 +94,10 @@ public:
     void visit(DoWhileStmt* stm) override;
     void visit(BreakStmt* stm) override;
     void visit(ReturnStmt* stm) override;
+    void visit(BlockStmt* stm) override;
+    void visit(ExprStmt* stm) override;
+    void visit(ForStmt* stm) override;
+    void visit(ContinueStmt* stm) override;
     void visit(VarDec* dec) override;
     void visit(Body* body) override;
     void visit(FunDec* fun) override;
@@ -86,7 +108,9 @@ public:
 class TypeChecker : public Visitor {
 public:
     Environment<Type> tipos;                  // tipo declarado de cada variable / parámetro
-    unordered_map<string, FunDec*> funciones; // firma de cada función, por nombre
+    unordered_map<string, FunDec*> funciones; // funciones declaradas hasta el momento, por nombre
+    set<string> definidas;                    // funciones con cuerpo
+    set<string> llamadas;                     // funciones del programa que se llaman
     FunDec* funcionActual = nullptr;          // función que se está verificando
     int bucles = 0;                           // cantidad de bucles abiertos (para break)
 
@@ -102,8 +126,9 @@ public:
     Type visit(IdExp* exp) override;
     Type visit(IfExp* exp) override;
     Type visit(FCallExp* exp) override;
-    Type visit(MaxMinExp* exp) override;
-    Type visit(CountExp* exp) override;
+    Type visit(UnaryExp* exp) override;
+    Type visit(ArrayExp* exp) override;
+    Type visit(IncDecExp* exp) override;
     void visit(AssignStmt* stm) override;
     void visit(PrintStmt* stm) override;
     void visit(IfStmt* stm) override;
@@ -111,6 +136,10 @@ public:
     void visit(DoWhileStmt* stm) override;
     void visit(BreakStmt* stm) override;
     void visit(ReturnStmt* stm) override;
+    void visit(BlockStmt* stm) override;
+    void visit(ExprStmt* stm) override;
+    void visit(ForStmt* stm) override;
+    void visit(ContinueStmt* stm) override;
     void visit(VarDec* dec) override;
     void visit(Body* body) override;
     void visit(FunDec* fun) override;
@@ -118,6 +147,8 @@ public:
 
 private:
     void esperarBool(Exp* condicion, const string& donde);
+    void registrar(FunDec* f);
+    Type destino(const string& nombre, const vector<Exp*>& indices, const string& accion);
 };
 
 #endif // VISITOR_H
