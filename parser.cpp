@@ -1,6 +1,8 @@
 #include <iostream>
 #include <stdexcept>
 #include <cstdint>
+#include <algorithm>
+#include <memory>
 #include "token.h"
 #include "scanner.h"
 #include "ast.h"
@@ -56,7 +58,12 @@ bool Parser::isAtEnd() {
 bool Parser::checkTipo() {
     return check(Token::TINT) || check(Token::TBOOL) || check(Token::TCHAR)
         || check(Token::TFLOAT) || check(Token::TDOUBLE) || check(Token::TLONG)
-        || check(Token::TSTRING);
+        || check(Token::TSTRING)
+        || (check(Token::ID) && tiposEstructura.count(current->text));
+}
+
+bool Parser::checkDeclaracion() {
+    return checkTipo() && (!check(Token::ID) || scanner->peekTipo() == Token::ID);
 }
 
 // Verifica que el token actual sea del tipo dado y lo consume; si no, lanza el error
@@ -146,11 +153,14 @@ Programa* Parser::parseProgram() {
             consume(Token::SEMICOL, "se esperaba ';' después de 'using namespace std'");
             usingStd = true;
         }
+        else if (match(Token::STRUCT)) {
+            parseEstructura(p);
+        }
         else if (checkTipo() || check(Token::TVOID)) {
             p->funciones.push_back(parseFunDec());
         }
         else {
-            throw runtime_error("Error sintáctico: se esperaba una función, #include o 'using namespace std;' (se encontró '"
+            throw runtime_error("Error sintáctico: se esperaba una función, struct, #include o 'using namespace std;' (se encontró '"
                                 + current->text + "')");
         }
     }
@@ -159,10 +169,49 @@ Programa* Parser::parseProgram() {
     return p;
 }
 
+void Parser::parseEstructura(Programa* programa) {
+    string nombre = consumirNombre("se esperaba el nombre del struct");
+    if (tiposEstructura.count(nombre)) {
+        throw runtime_error("Error sintáctico: struct redeclarado: " + nombre);
+    }
+    consume(Token::LBRACE, "se esperaba '{' después de " + nombre);
+    vector<string> campos;
+    while (!check(Token::RBRACE)) {
+        consume(Token::TINT, "solo se admiten campos int en " + nombre);
+        do {
+            string campo = consumirNombre("se esperaba el nombre del campo");
+            if (find(campos.begin(), campos.end(), campo) != campos.end()) {
+                throw runtime_error("Error sintáctico: campo repetido: " + campo);
+            }
+            campos.push_back(campo);
+            if (campos.size() > 2) {
+                throw runtime_error("Error sintáctico: solo se admiten hasta dos campos int");
+            }
+        } while (match(Token::COMMA));
+        consume(Token::SEMICOL, "se esperaba ';' después de los campos");
+    }
+    if (campos.empty()) throw runtime_error("Error sintáctico: el struct necesita un campo int");
+    consume(Token::RBRACE, "se esperaba '}' al cerrar el struct");
+    consume(Token::SEMICOL, "se esperaba ';' después del struct");
+    tiposEstructura.insert(nombre);
+    programa->estructuras.emplace(nombre, campos);
+}
+
+StructExp* Parser::parseInicializadorStruct(const string& nombre) {
+    auto valor = make_unique<StructExp>(nombre);
+    consume(Token::LBRACE, "se esperaba '{' al inicializar " + nombre);
+    while (!check(Token::RBRACE)) {
+        valor->valores.push_back(parseCExp());
+        if (!match(Token::COMMA)) break;
+    }
+    consume(Token::RBRACE, "se esperaba '}' al inicializar " + nombre);
+    return valor.release();
+}
+
 // tipo ::= int | bool | char | float | double | long [long] [int] | string
 string Parser::parseTipo() {
     if (!checkTipo()) {
-        throw runtime_error("Error sintáctico: se esperaba un tipo (int, long, bool, char, float, double o string)");
+        throw runtime_error("Error sintáctico: se esperaba un tipo básico o un struct declarado");
     }
     advance();
     switch (previous->type) {
@@ -185,7 +234,24 @@ string Parser::parseTipo() {
 FunDec* Parser::parseFunDec() {
     FunDec* f = new FunDec();
     f->tipo = match(Token::TVOID) ? "void" : parseTipo();
-    f->nombre = consumirNombre("se esperaba el nombre de la función");
+    string etiquetaOperador;
+    if (match(Token::OPERATOR)) {
+        switch (current->type) {
+            case Token::PLUS: case Token::MINUS: case Token::MUL: case Token::DIV:
+            case Token::MOD: case Token::EQ: case Token::NE: case Token::LT:
+            case Token::LE: case Token::GT: case Token::GE:
+                f->operador = current->text;
+                etiquetaOperador = "operador." + to_string(current->type);
+                advance();
+                break;
+            default:
+                throw runtime_error("Error sintáctico: sobrecarga no soportada para '" + current->text + "'");
+        }
+        f->nombre = "operator" + f->operador;
+    }
+    else {
+        f->nombre = consumirNombre("se esperaba el nombre de la función");
+    }
     consume(Token::LPAREN, "se esperaba '(' después de " + f->nombre);
     if (match(Token::TVOID)) {
         // f(void): lista de parámetros vacía
@@ -199,6 +265,9 @@ FunDec* Parser::parseFunDec() {
             // primera dimensión no importa (int a[5] es lo mismo que int a[])
             vector<int> dims = parseDimensiones();
             if (!dims.empty()) {
+                if (!f->operador.empty() || tiposEstructura.count(tipo)) {
+                    throw runtime_error("Error sintáctico: parámetro arreglo no soportado en esta firma");
+                }
                 tipo += "[]";
                 for (size_t k = 1; k < dims.size(); k++) tipo += "[" + to_string(dims[k]) + "]";
             }
@@ -206,10 +275,15 @@ FunDec* Parser::parseFunDec() {
         } while (match(Token::COMMA));
     }
     consume(Token::RPAREN, "se esperaba ')' en la función " + f->nombre);
+    if (!f->operador.empty()) {
+        for (const string& tipo : f->parametros_tipos) etiquetaOperador += "." + tipo;
+        f->nombre = etiquetaOperador;
+    }
     if (match(Token::SEMICOL)) {
         return f;                                    // prototipo: sin cuerpo
     }
     consume(Token::LBRACE, "se esperaba '{' o ';' después de la cabecera de " + f->nombre);
+    tipoRetorno = f->tipo;
     f->cuerpo = parseBody();
     consume(Token::RBRACE, "se esperaba '}' al final de la función " + f->nombre);
     return f;
@@ -293,8 +367,14 @@ VarDec* Parser::parseVarDec() {
         vector<int> dims = parseDimensiones();
         Exp* init = nullptr;
         vector<Exp*> elementos;
+        bool esStruct = tiposEstructura.count(d->tipo);
+        if (esStruct && !dims.empty()) {
+            throw runtime_error("Error sintáctico: no se admiten arreglos de struct");
+        }
         if (dims.empty()) {
-            if (match(Token::ASSIGN)) init = parseCExp();
+            bool asignacion = match(Token::ASSIGN);
+            if (esStruct && check(Token::LBRACE)) init = parseInicializadorStruct(d->tipo);
+            else if (asignacion) init = parseCExp();
         }
         else if (match(Token::ASSIGN)) {
             if (!check(Token::LBRACE)) {
@@ -353,7 +433,7 @@ Exp* Parser::parseCondition() {
 //        | Simple ';'
 Stmt* Parser::parseStmt() {
     Exp* e;
-    if (checkTipo()) {
+    if (checkDeclaracion()) {
         return parseVarDec();
     }
     else if (match(Token::LBRACE)) {
@@ -415,7 +495,7 @@ Stmt* Parser::parseStmt() {
     else if (match(Token::FOR)) {
         consume(Token::LPAREN, "se esperaba '(' después de for");
         Stmt* init = nullptr;
-        if (checkTipo()) {
+        if (checkDeclaracion()) {
             init = parseVarDec();                  // ya consume el ';'
         }
         else if (!match(Token::SEMICOL)) {
@@ -433,7 +513,10 @@ Stmt* Parser::parseStmt() {
     }
     else if (match(Token::RETURN)) {
         ReturnStmt* r = new ReturnStmt();
-        if (!check(Token::SEMICOL)) {
+        if (tiposEstructura.count(tipoRetorno) && check(Token::LBRACE)) {
+            r->exp = parseInicializadorStruct(tipoRetorno);
+        }
+        else if (!check(Token::SEMICOL)) {
             r->exp = parseCExp();                  // 'return;' solo en funciones void
         }
         consume(Token::SEMICOL, "se esperaba ';' después de return");
@@ -484,7 +567,18 @@ Stmt* Parser::parseAsignacionOExp() {
         valor = parseCExp();
         return new AssignStmt(variable, indices, valor);
     }
-    throw runtime_error("Error sintáctico: el lado izquierdo de '=' debe ser una variable o un elemento de arreglo");
+    if (CampoExp* miembro = dynamic_cast<CampoExp*>(e)) {
+        if (IdExp* objeto = dynamic_cast<IdExp*>(miembro->objeto)) {
+            string variable = objeto->value;
+            string campo = miembro->campo;
+            delete miembro;
+            auto* sentencia = new AssignStmt(variable, parseCExp());
+            sentencia->campo = campo;
+            return sentencia;
+        }
+    }
+    delete e;
+    throw runtime_error("Error sintáctico: se esperaba una variable, un elemento de arreglo o un campo asignable");
 }
 
 // CExp ::= Or [ '?' CExp ':' CExp ]
@@ -602,6 +696,14 @@ Exp* Parser::parseTerm() {
 //          | id '(' [CExp (',' CExp)*] ')'
 //          | id { '[' CExp ']' } [ '++' | '--' ]
 Exp* Parser::parseFactor() {
+    Exp* objeto = parseAtomo();
+    while (match(Token::DOT)) {
+        objeto = new CampoExp(objeto, consumirNombre("se esperaba el nombre del campo"));
+    }
+    return objeto;
+}
+
+Exp* Parser::parseAtomo() {
     if (match(Token::NUM)) {
         long long v;
         try {
@@ -649,6 +751,9 @@ Exp* Parser::parseFactor() {
     }
     else if (match(Token::ID)) {
         string nombre = previous->text;
+        if (tiposEstructura.count(nombre) && check(Token::LBRACE)) {
+            return parseInicializadorStruct(nombre);
+        }
         if (match(Token::LPAREN)) {                 // llamada: id '(' [CExp (',' CExp)*] ')'
             FCallExp* call = new FCallExp();
             call->nombre = nombre;

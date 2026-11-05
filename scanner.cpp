@@ -21,8 +21,8 @@ static const set<string> RESERVADAS = {
     "constexpr", "constinit", "const_cast", "co_await", "co_return", "co_yield",
     "decltype", "default", "delete", "dynamic_cast", "enum", "explicit", "export", "extern",
     "friend", "goto", "inline", "mutable", "new", "noexcept", "not", "not_eq", "nullptr",
-    "operator", "or", "or_eq", "private", "protected", "public", "register", "reinterpret_cast",
-    "requires", "short", "signed", "sizeof", "static", "static_assert", "static_cast", "struct",
+    "or", "or_eq", "private", "protected", "public", "register", "reinterpret_cast",
+    "requires", "short", "signed", "sizeof", "static", "static_assert", "static_cast",
     "switch", "template", "this", "thread_local", "throw", "try", "typedef", "typeid",
     "typename", "union", "unsigned", "virtual", "volatile", "wchar_t", "xor", "xor_eq"
 };
@@ -35,6 +35,7 @@ static Token::Type tipoPalabra(const string& p) {
         {"return", Token::RETURN}, {"int", Token::TINT}, {"bool", Token::TBOOL},
         {"char", Token::TCHAR}, {"float", Token::TFLOAT}, {"double", Token::TDOUBLE},
         {"long", Token::TLONG}, {"void", Token::TVOID}, {"using", Token::USING},
+        {"struct", Token::STRUCT}, {"operator", Token::OPERATOR},
         {"namespace", Token::NAMESPACE}, {"for", Token::FOR}, {"continue", Token::CONTINUE},
         // cout, endl y string no son palabras clave en C++, sino nombres de std
         // (el parser exige 'using namespace std;' o el prefijo std::)
@@ -150,7 +151,7 @@ Token* Scanner::nextToken() {
             token = new Token(c == '\'' ? Token::CHARLIT : Token::STRLIT, input, first, current - first);
         }
     }
-    else if (strchr("+/-*%();=<>!,{}[]?:&|", c)) {
+    else if (strchr("+/-*%();=<>!,{}[]?:&|.", c)) {
         switch (c) {
             case '+':
                 if (input[current + 1] == '+') { // incremento ++
@@ -170,6 +171,7 @@ Token* Scanner::nextToken() {
                     token = new Token(Token::MINUS, c);
                 }
                 break;
+            case '.': token = new Token(Token::DOT, c); break;
             case '%': token = new Token(Token::MOD,      c); break;
             case '[': token = new Token(Token::LBRACKET, c); break;
             case ']': token = new Token(Token::RBRACKET, c); break;
@@ -250,6 +252,17 @@ Token* Scanner::nextToken() {
     }
 
     return token;
+}
+
+// Consulta un token sin avanzar el scanner.
+Token::Type Scanner::peekTipo() {
+    int inicio = first, posicion = current;
+    Token* siguiente = nextToken();
+    Token::Type tipo = siguiente->type;
+    delete siguiente;
+    first = inicio;
+    current = posicion;
+    return tipo;
 }
 
 // Destructor del scanner

@@ -1,4 +1,6 @@
 #include <iostream>
+#include <algorithm>
+#include <array>
 #include <stdexcept>
 #include <unordered_map>
 #include <cstdio>
@@ -22,13 +24,14 @@ static Type::Kind kindDe(const string& tipo) {
     if (nombre == "double") return Type::DOUBLE;
     if (nombre == "long")   return Type::LONG;
     if (nombre == "string") return Type::STRING;
-    return Type::VOID;
+    return nombre == "void" ? Type::VOID : Type::STRUCT;
 }
 
 // Tipo completo de un nombre de tipo, incluidas las dimensiones: "int[][3]" -> int con dims {0, 3}
 static Type tipoDe(const string& nombre) {
     Type t = Type::deKind(kindDe(nombre));
     size_t i = nombre.find('[');
+    if (t.isStruct()) t.nombreStruct = nombre.substr(0, i);
     while (i != string::npos) {
         size_t fin = nombre.find(']', i);
         string n = nombre.substr(i + 1, fin - i - 1);
@@ -80,6 +83,8 @@ static string escaparAsm(const string& texto) {
 // =====================================================
 
 Type BinaryExp::accept(Visitor* visitor)  { return visitor->visit(this); }
+Type StructExp::accept(Visitor* visitor)  { return visitor->visit(this); }
+Type CampoExp::accept(Visitor* visitor)   { return visitor->visit(this); }
 Type UnaryExp::accept(Visitor* visitor)   { return visitor->visit(this); }
 Type ArrayExp::accept(Visitor* visitor)   { return visitor->visit(this); }
 Type IncDecExp::accept(Visitor* visitor)  { return visitor->visit(this); }
@@ -298,11 +303,15 @@ void GencodeVisitor::comparar(BinaryOp op, Type::Kind tipo) {
 // Evalúa la condición de un if / while / do / ?: y la convierte a bool (0 o 1)
 void GencodeVisitor::condicion(Exp* e) {
     e->accept(this);
-    convertir(e->tipoExp, Type::BOOL);
+    convertir(e->tipoExp.kind, Type::BOOL);
 }
 
 // Genera el código de left op right y deja el resultado en %rax
 Type GencodeVisitor::visit(BinaryExp* exp) {
+    if (!exp->sobrecarga.empty()) {
+        emitirLlamada(exp->sobrecarga, {exp->left, exp->right});
+        return exp->tipoExp;
+    }
     if (exp->op == AND_OP || exp->op == OR_OP) {
         // Evaluación en cortocircuito: el lado derecho solo se evalúa si hace falta
         int id = etiquetas++;
@@ -319,11 +328,11 @@ Type GencodeVisitor::visit(BinaryExp* exp) {
     }
     Type::Kind k = exp->tipoOperandos;
     exp->left->accept(this);
-    convertir(exp->left->tipoExp, k);
+    convertir(exp->left->tipoExp.kind, k);
     out << "pushq %rax" << endl;
     pila++;
     exp->right->accept(this);
-    convertir(exp->right->tipoExp, k);
+    convertir(exp->right->tipoExp.kind, k);
     out << "movq %rax, %rcx" << endl;
     out << "popq %rax" << endl;
     pila--;
@@ -335,7 +344,33 @@ Type GencodeVisitor::visit(BinaryExp* exp) {
             comparar(exp->op, k);
             break;
     }
-    return Type::deKind(exp->tipoExp);
+    return exp->tipoExp;
+}
+
+// Un agregado cabe en un slot: campo 0 abajo, campo 1 arriba.
+Type GencodeVisitor::visit(StructExp* exp) {
+    out << "xorl %eax, %eax" << endl;
+    if (!exp->valores.empty()) {
+        exp->valores[0]->accept(this);
+        out << "movl %eax, %eax" << endl;  // limpia la mitad alta
+    }
+    if (exp->valores.size() == 2) {
+        out << "pushq %rax" << endl;
+        pila++;
+        exp->valores[1]->accept(this);
+        out << "shlq $32, %rax" << endl;
+        out << "popq %rcx" << endl;
+        pila--;
+        out << "orq %rcx, %rax" << endl;
+    }
+    return exp->tipoExp;
+}
+
+Type GencodeVisitor::visit(CampoExp* exp) {
+    exp->objeto->accept(this);
+    if (exp->indice == 0) out << "movslq %eax, %rax" << endl;
+    else out << "sarq $32, %rax" << endl;
+    return exp->tipoExp;
 }
 
 // -e: se promueve el operando y se cambia el signo.  !e: e convertida a bool, invertida.
@@ -346,8 +381,8 @@ Type GencodeVisitor::visit(UnaryExp* exp) {
         return Type::deKind(Type::BOOL);
     }
     exp->e->accept(this);
-    convertir(exp->e->tipoExp, exp->tipoExp);
-    switch (exp->tipoExp) {
+    convertir(exp->e->tipoExp.kind, exp->tipoExp.kind);
+    switch (exp->tipoExp.kind) {
         case Type::FLOAT: case Type::DOUBLE:
             out << "btcq $63, %rax" << endl;       // invierte el bit de signo (también -0.0)
             break;
@@ -359,7 +394,7 @@ Type GencodeVisitor::visit(UnaryExp* exp) {
             out << "negq %rax" << endl;
             break;
     }
-    return Type::deKind(exp->tipoExp);
+    return exp->tipoExp;
 }
 
 // Carga el literal en %rax
@@ -382,13 +417,13 @@ Type GencodeVisitor::visit(NumberExp* exp) {
             out << "movq $" << exp->value << ", %rax" << endl;
             break;
     }
-    return Type::deKind(exp->tipoExp);
+    return exp->tipoExp;
 }
 
 // Carga el valor de la variable desde la pila en %rax
 Type GencodeVisitor::visit(IdExp* exp) {
     out << "movq " << posicion.lookup(exp->value) * -TAM_VARIABLE << "(%rbp), %rax" << endl;
-    return Type::deKind(exp->tipoExp);
+    return exp->tipoExp;
 }
 
 // Deja en %rax la dirección de una variable (sin índices) o de un elemento / fila de un arreglo.
@@ -406,7 +441,7 @@ void GencodeVisitor::direccion(const string& nombre, const vector<Exp*>& indices
     pila++;
     for (size_t k = 0; k < indices.size(); k++) {
         indices[k]->accept(this);
-        convertir(indices[k]->tipoExp, Type::LONG);
+        convertir(indices[k]->tipoExp.kind, Type::LONG);
         out << "imulq $" << pasoIndice(dims, k) << ", %rax" << endl;
         out << "addq %rax, (%rsp)" << endl;
     }
@@ -417,14 +452,14 @@ void GencodeVisitor::direccion(const string& nombre, const vector<Exp*>& indices
 // a[i][j]: carga el elemento; con menos índices que dimensiones deja la dirección de la fila
 Type GencodeVisitor::visit(ArrayExp* exp) {
     direccion(exp->nombre, exp->indices);
-    if (exp->dimsExp.empty()) out << "movq (%rax), %rax" << endl;
-    return Type::deKind(exp->tipoExp);
+    if (exp->tipoExp.dims.empty()) out << "movq (%rax), %rax" << endl;
+    return exp->tipoExp;
 }
 
 // ++x / x++ / --x / x--: suma o resta 1 en la variable o elemento.
 // El prefijo devuelve el valor nuevo y el sufijo el anterior.
 Type GencodeVisitor::visit(IncDecExp* exp) {
-    Type::Kind k = exp->tipoExp;
+    Type::Kind k = exp->tipoExp.kind;
     direccion(exp->nombre, exp->indices);
     out << "movq %rax, %rsi" << endl;              // dirección
     out << "movq (%rsi), %rax" << endl;
@@ -460,13 +495,13 @@ Type GencodeVisitor::visit(IfExp* exp) {
     out << "cmpq $0, %rax" << endl;
     out << "je .Lifexp_else_" << id << endl;
     exp->thenExp->accept(this);
-    convertir(exp->thenExp->tipoExp, exp->tipoExp);
+    convertir(exp->thenExp->tipoExp.kind, exp->tipoExp.kind);
     out << "jmp .Lifexp_end_" << id << endl;
     out << ".Lifexp_else_" << id << ":" << endl;
     exp->elseExp->accept(this);
-    convertir(exp->elseExp->tipoExp, exp->tipoExp);
+    convertir(exp->elseExp->tipoExp.kind, exp->tipoExp.kind);
     out << ".Lifexp_end_" << id << ":" << endl;
-    return Type::deKind(exp->tipoExp);
+    return exp->tipoExp;
 }
 
 // Llamada: evalúa los argumentos, los pasa en registros y llama a la función.
@@ -474,7 +509,7 @@ Type GencodeVisitor::visit(IfExp* exp) {
 Type GencodeVisitor::visit(FCallExp* exp) {
     if (!exp->predefinida.empty()) {
         // std::max(a, b) = (a < b) ? b : a      std::min(a, b) = (b < a) ? b : a
-        Type::Kind k = exp->tipoExp;
+        Type::Kind k = exp->tipoExp.kind;
         exp->argumentos[0]->accept(this);
         out << "pushq %rax" << endl;
         pila++;
@@ -494,30 +529,36 @@ Type GencodeVisitor::visit(FCallExp* exp) {
         return Type::deKind(k);
     }
 
-    FunDec* f = funciones[exp->nombre];
-    for (size_t i = 0; i < exp->argumentos.size(); i++) {
-        exp->argumentos[i]->accept(this);
-        convertir(exp->argumentos[i]->tipoExp, kindDe(f->parametros_tipos[i]));   // al tipo del parámetro
+    emitirLlamada(exp->nombre, exp->argumentos);
+    return exp->tipoExp;
+}
+
+void GencodeVisitor::emitirLlamada(const string& nombre, const vector<Exp*>& argumentos) {
+    FunDec* f = funciones.at(nombre);
+    for (size_t i = 0; i < argumentos.size(); i++) {
+        argumentos[i]->accept(this);
+        convertir(argumentos[i]->tipoExp.kind, kindDe(f->parametros_tipos[i]));
         out << "pushq %rax" << endl;
         pila++;
     }
-    for (int i = (int)exp->argumentos.size() - 1; i >= 0; i--) {
-        out << "popq " << REG_ARGS[i] << endl;
+    for (size_t i = argumentos.size(); i > 0; i--) {
+        out << "popq " << REG_ARGS[i - 1] << endl;
         pila--;
     }
-    // La pila debe estar alineada a 16 bytes en el call
-    bool alinear = pila % 2 != 0;
-    if (alinear) out << "subq $8, %rsp" << endl;
-    out << "call " << etiquetaFuncion(exp->nombre) << endl;
-    if (alinear) out << "addq $8, %rsp" << endl;
-    return Type::deKind(exp->tipoExp);
+    llamar(etiquetaFuncion(nombre));
 }
 
 // Evalúa la expresión y la guarda en la variable o en el elemento del arreglo
 void GencodeVisitor::visit(AssignStmt* stm) {
     Type destino = tipos.lookup(stm->id);            // tipo con el que se declaró la variable
     stm->e->accept(this);
-    convertir(stm->e->tipoExp, destino.kind);
+    if (!stm->campo.empty()) {
+        convertir(stm->e->tipoExp.kind, Type::INT);
+        int offset = posicion.lookup(stm->id) * -TAM_VARIABLE + 4 * stm->indiceCampo;
+        out << "movl %eax, " << offset << "(%rbp)" << endl;
+        return;
+    }
+    convertir(stm->e->tipoExp.kind, destino.kind);
     if (stm->indices.empty()) {
         out << "movq %rax, " << posicion.lookup(stm->id) * -TAM_VARIABLE << "(%rbp)" << endl;
         return;
@@ -541,7 +582,7 @@ void GencodeVisitor::visit(PrintStmt* stm) {
             continue;
         }
         e->accept(this);
-        Type::Kind k = e->tipoExp;
+        Type::Kind k = e->tipoExp.kind;
         if (Type::esFlotante(k)) {
             // cout imprime float y double con 6 cifras significativas, igual que %g
             out << "movq %rax, %xmm0" << endl;
@@ -668,7 +709,7 @@ void GencodeVisitor::visit(ContinueStmt* stm) {
 void GencodeVisitor::visit(ReturnStmt* stm) {
     if (stm->exp) {
         stm->exp->accept(this);
-        convertir(stm->exp->tipoExp, kindDe(funciones[funcionActual]->tipo));   // al tipo de la función
+        convertir(stm->exp->tipoExp.kind, kindDe(funciones[funcionActual]->tipo));   // al tipo de la función
     }
     out << "jmp .Lfin_" << funcionActual << endl;
 }
@@ -713,7 +754,7 @@ void GencodeVisitor::visit(VarDec* dec) {
                 Exp* e = dec->listas[i][k];
                 if (!e) continue;
                 e->accept(this);
-                convertir(e->tipoExp, destino.kind);
+                convertir(e->tipoExp.kind, destino.kind);
                 out << "movq %rax, " << (primero - k) * -TAM_VARIABLE << "(%rbp)" << endl;
             }
             continue;
@@ -722,7 +763,7 @@ void GencodeVisitor::visit(VarDec* dec) {
         tipos.add_var(v, destino);
         if (dec->inicializadores[i]) {
             dec->inicializadores[i]->accept(this);
-            convertir(dec->inicializadores[i]->tipoExp, destino.kind);
+            convertir(dec->inicializadores[i]->tipoExp.kind, destino.kind);
         } else if (destino.isString()) {
             out << "leaq .Lcadena_vacia(%rip), %rax" << endl;   // un string sin inicializar es ""
         } else {
@@ -820,18 +861,22 @@ static void error(const string& msg) {
 
 // Conversión implícita (inicialización, argumento, return): entre tipos aritméticos
 // siempre se puede (como en C++); string solo desde string.
-static bool convertible(Type::Kind destino, Type::Kind origen) {
-    if (destino == origen) return true;
-    return Type::esAritmetico(destino) && Type::esAritmetico(origen);
+static bool mismoTipo(const Type& a, const Type& b) {
+    return a.kind == b.kind && a.nombreStruct == b.nombreStruct && a.dims == b.dims;
 }
 
-// Anota el tipo de la expresión (y sus dimensiones si es un arreglo) y lo devuelve
-static Type anotar(Exp* e, Type::Kind k, const vector<int>& dims = {}) {
-    e->tipoExp = k;
-    e->dimsExp = dims;
-    Type t = Type::deKind(k);
-    t.dims = dims;
-    return t;
+static bool convertible(const Type& destino, const Type& origen) {
+    return mismoTipo(destino, origen) || (destino.isNumeric() && origen.isNumeric());
+}
+
+// Anota el tipo completo que utilizará el generador de ensamblador.
+static Type anotar(Exp* e, const Type& tipo) {
+    e->tipoExp = tipo;
+    return tipo;
+}
+
+static Type anotar(Exp* e, Type::Kind k) {
+    return anotar(e, Type::deKind(k));
 }
 
 // Los enteros (bool, char, int, long) sirven como índice y para %
@@ -861,10 +906,88 @@ void TypeChecker::esperarBool(Exp* condicion, const string& donde) {
 
 // ---------- Expresiones ----------
 
+int TypeChecker::indiceCampo(const Type& tipo, const string& campo) {
+    if (!tipo.isStruct() || tipo.isArray()) {
+        error("no se puede acceder al campo '" + campo + "' de " + tipo.kindName());
+    }
+    const auto& campos = estructuras.at(tipo.nombreStruct);
+    auto it = find(campos.begin(), campos.end(), campo);
+    if (it == campos.end()) error(tipo.kindName() + " no tiene el campo '" + campo + "'");
+    return static_cast<int>(it - campos.begin());
+}
+
+Type TypeChecker::visit(CampoExp* exp) {
+    exp->indice = indiceCampo(exp->objeto->accept(this), exp->campo);
+    return anotar(exp, Type::INT);
+}
+
+Type TypeChecker::visit(StructExp* exp) {
+    const auto& campos = estructuras.at(exp->nombre);
+    if (exp->valores.size() > campos.size()) {
+        error("demasiados inicializadores para " + exp->nombre);
+    }
+    for (Exp* valor : exp->valores) {
+        Type t = valor->accept(this);
+        if (!t.isNumeric() || Type::promover(t.kind) != Type::INT) {
+            error("el inicializador de un campo int de " + exp->nombre + " no admite " + t.kindName());
+        }
+    }
+    return anotar(exp, tipoDe(exp->nombre));
+}
+
+// Orden de conversiones estándar admitidas: exacta, promoción, conversión.
+static int rangoConversion(const Type& parametro, const Type& argumento) {
+    if (mismoTipo(parametro, argumento)) return 0;
+    if (!parametro.isNumeric() || !argumento.isNumeric()) return -1;
+    if (parametro.kind == Type::promover(argumento.kind)
+        || (parametro.kind == Type::DOUBLE && argumento.kind == Type::FLOAT)) return 1;
+    return 2;
+}
+
+Type TypeChecker::resolverSobrecarga(BinaryExp* exp, const Type& izq, const Type& der) {
+    struct Candidato {
+        FunDec* funcion;
+        array<int, 2> rangos;
+    };
+    vector<Candidato> candidatos;
+    string operador = Exp::binopToChar(exp->op);
+    for (const auto& entrada : funciones) {
+        FunDec* funcion = entrada.second;
+        if (funcion->operador != operador) continue;
+        int rangoIzq = rangoConversion(tipoDe(funcion->parametros_tipos[0]), izq);
+        int rangoDer = rangoConversion(tipoDe(funcion->parametros_tipos[1]), der);
+        if (rangoIzq >= 0 && rangoDer >= 0) {
+            candidatos.push_back({funcion, {rangoIzq, rangoDer}});
+        }
+    }
+
+    string operandos = izq.kindName() + " y " + der.kindName();
+    if (candidatos.empty()) error("no hay sobrecarga viable de operator" + operador + " para " + operandos);
+    for (const Candidato& candidato : candidatos) {
+        bool mejor = true;
+        for (const Candidato& otro : candidatos) {
+            if (&candidato == &otro) continue;
+            if (candidato.rangos[0] > otro.rangos[0] || candidato.rangos[1] > otro.rangos[1]
+                || candidato.rangos == otro.rangos) {
+                mejor = false;
+                break;
+            }
+        }
+        if (mejor) {
+            exp->sobrecarga = candidato.funcion->nombre;
+            llamadas.insert(exp->sobrecarga);
+            return anotar(exp, tipoDe(candidato.funcion->tipo));
+        }
+    }
+    error("sobrecarga ambigua de operator" + operador + " para " + operandos);
+    return Type();
+}
+
 // Aritméticos: conversiones aritméticas usuales. Comparaciones y lógicos: devuelven bool.
 Type TypeChecker::visit(BinaryExp* exp) {
     Type l = exp->left->accept(this);
     Type r = exp->right->accept(this);
+    if (l.isStruct() || r.isStruct()) return resolverSobrecarga(exp, l, r);
     string op = Exp::binopToChar(exp->op);
     string operandos = l.kindName() + " " + op + " " + r.kindName();
     bool comparacion = exp->op != PLUS_OP && exp->op != MINUS_OP && exp->op != MUL_OP
@@ -921,7 +1044,8 @@ Type TypeChecker::destino(const string& nombre, const vector<Exp*>& indices, con
     if (indices.size() < t.dims.size()) {
         error("no se puede " + accion + " un arreglo completo (" + nombre + " es " + t.kindName() + ")");
     }
-    return Type::deKind(t.kind);
+    t.dims.clear();
+    return t;
 }
 
 // a[i][j]: a es un arreglo, cada índice es entero. Con menos índices que dimensiones
@@ -941,8 +1065,8 @@ Type TypeChecker::visit(ArrayExp* exp) {
         Type ti = i->accept(this);
         if (!esEntero(ti)) error("el índice de " + exp->nombre + " debe ser entero, pero es " + ti.kindName());
     }
-    vector<int> resto(t.dims.begin() + exp->indices.size(), t.dims.end());
-    return anotar(exp, t.kind, resto);
+    t.dims.erase(t.dims.begin(), t.dims.begin() + exp->indices.size());
+    return anotar(exp, t);
 }
 
 // ++x / x-- : x es una variable o elemento numérico. En C++17 no se permite sobre bool.
@@ -966,7 +1090,7 @@ Type TypeChecker::visit(IdExp* exp) {
         error("variable no declarada: " + exp->value);
     }
     Type t = tipos.lookup(exp->value);
-    return anotar(exp, t.kind, t.dims);
+    return anotar(exp, t);
 }
 
 // c ? e1 : e2: c convertible a bool; si las ramas son aritméticas de distinto tipo
@@ -981,7 +1105,7 @@ Type TypeChecker::visit(IfExp* exp) {
     if (t.isArray() || e.isArray()) {
         error("las ramas de ?: no pueden ser arreglos");
     }
-    if (t.kind == e.kind) return anotar(exp, t.kind);
+    if (mismoTipo(t, e)) return anotar(exp, t);
     if (t.isNumeric() && e.isNumeric()) return anotar(exp, Type::comun(t.kind, e.kind));
     error("las ramas de ?: tienen tipos incompatibles: " + t.kindName() + " y " + e.kindName());
     return Type();
@@ -1015,14 +1139,14 @@ Type TypeChecker::visit(FCallExp* exp) {
                      && equal(p.dims.begin() + 1, p.dims.end(), t.dims.begin() + 1);
             }
             else {
-                ok = convertible(p.kind, t.kind);
+                ok = convertible(p, t);
             }
             if (!ok) {
                 error("el argumento " + to_string(i + 1) + " de " + f->nombre + " debe ser "
                       + f->parametros_tipos[i] + ", pero es " + t.kindName());
             }
         }
-        return anotar(exp, kindDe(f->tipo));
+        return anotar(exp, tipoDe(f->tipo));
     }
 
     string base = calificado ? nombre.substr(5) : nombre;
@@ -1035,6 +1159,9 @@ Type TypeChecker::visit(FCallExp* exp) {
         Type b = exp->argumentos[1]->accept(this);
         if (a.isArray() || b.isArray()) {
             error("los argumentos de " + nombre + " no pueden ser arreglos");
+        }
+        if (a.isStruct() || b.isStruct()) {
+            error(nombre + " no admite struct en este subconjunto");
         }
         if (a.kind != b.kind) {
             error("los argumentos de " + nombre + " deben ser del mismo tipo, pero son "
@@ -1054,10 +1181,14 @@ Type TypeChecker::visit(FCallExp* exp) {
 void TypeChecker::visit(AssignStmt* stm) {
     Type t = stm->e->accept(this);
     Type declarado = destino(stm->id, stm->indices, "asignar a");
+    if (!stm->campo.empty()) {
+        stm->indiceCampo = indiceCampo(declarado, stm->campo);
+        declarado = Type::deKind(Type::INT);
+    }
     if (t.isArray()) {
         error("no se puede asignar un arreglo");
     }
-    bool ok = convertible(declarado.kind, t.kind) || (declarado.isString() && t.isNumeric());
+    bool ok = convertible(declarado, t) || (declarado.isString() && t.isNumeric());
     if (!ok) {
         error("no se puede asignar " + t.kindName() + " a la variable "
               + declarado.kindName() + " " + stm->id);
@@ -1075,6 +1206,7 @@ void TypeChecker::visit(PrintStmt* stm) {
         if (t.isArray()) {
             error("cout no puede imprimir un arreglo completo");
         }
+        if (t.isStruct()) error("cout necesita un campo de " + t.kindName());
     }
 }
 
@@ -1161,7 +1293,7 @@ void TypeChecker::visit(ReturnStmt* stm) {
         }
         return;
     }
-    if (t.isArray() || !convertible(kindDe(funcionActual->tipo), t.kind)) {
+    if (t.isArray() || !convertible(tipoDe(funcionActual->tipo), t)) {
         error("la función " + funcionActual->nombre + " debe devolver "
               + funcionActual->tipo + ", pero return devuelve " + t.kindName());
     }
@@ -1184,8 +1316,8 @@ void TypeChecker::visit(ExprStmt* stm) {
 // tipo ids: sin variables repetidas en el mismo ámbito. Como en C++, la variable
 // ya es visible dentro de su propio inicializador.
 void TypeChecker::visit(VarDec* dec) {
-    Type::Kind k = kindDe(dec->tipo);
-    if (k == Type::VOID) {
+    Type tipo = tipoDe(dec->tipo);
+    if (tipo.isVoid()) {
         error("una variable no puede ser de tipo " + dec->tipo);
     }
     for (size_t i = 0; i < dec->variables.size(); i++) {
@@ -1195,25 +1327,25 @@ void TypeChecker::visit(VarDec* dec) {
         }
         if (!dec->dimensiones[i].empty()) {
             // Arreglo: n elementos más el puntero al primero
-            Type arreglo = Type::deKind(k);
+            Type arreglo = tipo;
             arreglo.dims = dec->dimensiones[i];
             tipos.add_var(v, arreglo);
             numVariables[funcionActual->nombre] += totalElementos(arreglo.dims) + 1;
             for (Exp* e : dec->listas[i]) {
                 if (!e) continue;
                 Type t = e->accept(this);
-                if (t.isArray() || !convertible(k, t.kind)) {
+                if (t.isArray() || !convertible(tipo, t)) {
                     error("no se puede inicializar un elemento de " + v + " (" + dec->tipo
                           + ") con un valor " + t.kindName());
                 }
             }
             continue;
         }
-        tipos.add_var(v, Type::deKind(k));
+        tipos.add_var(v, tipo);
         numVariables[funcionActual->nombre]++;      // una variable local más
         if (dec->inicializadores[i]) {
             Type t = dec->inicializadores[i]->accept(this);
-            if (t.isArray() || !convertible(k, t.kind)) {
+            if (t.isArray() || !convertible(tipo, t)) {
                 error("no se puede inicializar la variable " + dec->tipo + " " + v
                       + " con un valor " + t.kindName());
             }
@@ -1248,6 +1380,15 @@ void TypeChecker::visit(FunDec* fun) {
 // Registra la declaración (prototipo o definición) de una función y la compara con
 // las anteriores del mismo nombre
 void TypeChecker::registrar(FunDec* f) {
+    if (!f->operador.empty()) {
+        string nombre = "operator" + f->operador;
+        if (f->parametros_tipos.size() != 2) {
+            error(nombre + " necesita dos parámetros en este subconjunto");
+        }
+        if (!tipoDe(f->parametros_tipos[0]).isStruct() && !tipoDe(f->parametros_tipos[1]).isStruct()) {
+            error(nombre + " necesita al menos un parámetro struct");
+        }
+    }
     if (f->parametros_tipos.size() > 6) {
         error("la función " + f->nombre + " tiene más de 6 parámetros");
     }
@@ -1275,6 +1416,7 @@ void TypeChecker::registrar(FunDec* f) {
 // declaración (prototipo o definición), como en C++. La recursión funciona porque
 // la función se registra antes de verificar su cuerpo.
 void TypeChecker::visit(Programa* program) {
+    estructuras = program->estructuras;
     for (FunDec* f : program->funciones) {
         if (f->nombre == "main" && (f->tipo != "int" || !f->parametros_tipos.empty())) {
             error("main debe declararse como: int main()");

@@ -75,14 +75,18 @@ Estos pasos son solo para pruebas personales de las fases iniciales, serán inne
 ```
 Programa ::= { "#include" "<" ("iostream" | "string") ">"
              | "using" "namespace" "std" ";"
-             | FunDec }
-FunDec   ::= ( Tipo | "void" ) ID "(" [ "void" | Param { "," Param } ] ")" ( "{" Body "}" | ";" )
+             | StructDec | FunDec }
+StructDec ::= "struct" ID "{" { "int" ID { "," ID } ";" } "}" ";"
+FunDec   ::= ( Tipo | "void" ) ( ID | "operator" OpBin ) "(" [ "void" | Param { "," Param } ] ")" ( "{" Body "}" | ";" )
+OpBin    ::= "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | "<=" | ">" | ">="
 Param    ::= Tipo [ ID ] { "[" [ NUM ] "]" }
-Tipo     ::= "int" | "long" ["long"] ["int"] | "bool" | "char" | "float" | "double" | "string"
+Tipo     ::= "int" | "long" ["long"] ["int"] | "bool" | "char" | "float" | "double" | "string" | IDStruct
 Body     ::= { Stmt }
 VarDec   ::= Tipo Decl { "," Decl } ";"
 Decl     ::= ID [ "=" CExp ]
            | ID Dims [ "=" Lista ]
+           | ID [ "=" ] ListaStruct
+ListaStruct ::= "{" [ CExp { "," CExp } [ "," ] ] "}"
 Dims     ::= "[" [ NUM ] "]" { "[" NUM "]" }
 Lista    ::= "{" [ ( Lista | CExp ) { "," ( Lista | CExp ) } [ "," ] ] "}"
 
@@ -96,9 +100,9 @@ Stmt     ::= VarDec
            | "for" "(" ( VarDec | [ Simple ] ";" ) [ CExp ] ";" [ Simple ] ")" Stmt
            | "break" ";"
            | "continue" ";"
-           | "return" [ CExp ] ";"
+           | "return" [ CExp | ListaStruct ] ";"
            | Simple ";"
-Simple   ::= ID { "[" CExp "]" } "=" CExp
+Simple   ::= ( ID { "[" CExp "]" } | ID "." ID ) "=" CExp
            | CExp
 
 CExp     ::= Or [ "?" CExp ":" CExp ]
@@ -109,8 +113,10 @@ Rel      ::= BExp { ("<" | "<=" | ">" | ">=") BExp }
 BExp     ::= Expr { ("+" | "-") Expr }
 Expr     ::= Term { ("*" | "/" | "%") Term }
 Term     ::= "-" Term | "!" Term | ("++" | "--") Term | Factor
-Factor   ::= NUM | FLOATNUM | CHARLIT | STRLIT { STRLIT } | "true" | "false"
+Factor   ::= Atomo { "." ID }
+Atomo    ::= NUM | FLOATNUM | CHARLIT | STRLIT { STRLIT } | "true" | "false"
            | "(" CExp ")"
+           | IDStruct ListaStruct
            | ID "(" [ CExp { "," CExp } ] ")"
            | ID { "[" CExp "]" } [ "++" | "--" ]
 ```
@@ -181,6 +187,37 @@ operando de `cout` es una expresión aditiva: `cout << a < b;` es un error y se 
   referencia, igual que en C++ (`int a[]`, `int m[][3]`), y también se puede pasar una fila
   (`f(m[1])`). No se pueden asignar ni imprimir completos.
 
+## Sobrecarga de operadores
+
+El ejemplo `inputs/input11.txt` define `Punto` con dos campos `int`.
+`operator+(Punto, Punto)` suma coordenadas, `operator+(Punto, int)` desplaza
+la coordenada horizontal y `operator==(Punto, Punto)` compara los campos.
+Ejecuta `python3 run_all_inputs.py` y busca `input11.txt` en
+`outputs/reporte.txt`. Su salida es:
+
+```text
+7, 6
+9, 6
+1
+3, -2
+```
+
+- Las sobrecargas son funciones libres de dos parámetros por valor. Al menos
+  un parámetro debe ser un `struct` declarado. Se admiten los símbolos de
+  `OpBin`, con su precedencia habitual.
+- Cada `struct` tiene uno o dos campos `int`. Se puede copiar, pasar y devolver
+  por valor. Las llaves permiten valores `int` y promociones de `char` o
+  `bool`. Los campos omitidos se inicializan a cero.
+- El analizador semántico busca las firmas declaradas, conserva la identidad
+  de cada `struct` y prefiere coincidencias exactas, luego promociones y luego
+  conversiones aritméticas. Rechaza llamadas sin una mejor opción única.
+- El generador guarda los dos campos de 32 bits en una ranura de 64 bits.
+  Cada firma tiene su propia etiqueta y el operador se traduce a una llamada
+  normal del compilador.
+- El alcance de esta implementación son agregados simples y sobrecargas
+  binarias. Métodos, referencias, arreglos de `struct` y `operator<<` quedan
+  fuera de este subconjunto.
+
 ## Limitaciones (fuera del subconjunto)
 
 Se rechazan con un mensaje de error:
@@ -192,7 +229,7 @@ Se rechazan con un mensaje de error:
 - Asignación encadenada (`a = b = 3`) o como expresión.
 - Comentarios `/* */`; literales hexadecimales, con exponente o sufijo (`0x1F`, `1e3`, `1.5f`,
   `.5`); escapes distintos de `\n \t \0 \\ \' \"`.
-- Sobrecarga de funciones, más de 6 parámetros y cabeceras distintas de `<iostream>` y
+- Sobrecarga de funciones ordinarias, más de 6 parámetros y cabeceras distintas de `<iostream>` y
   `<string>`.
 - `cout`, `endl` y `string` se tratan como nombres reservados: no pueden usarse como nombres de
   variables, aunque en C++ sí sería posible.

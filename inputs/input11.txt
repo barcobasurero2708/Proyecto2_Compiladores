@@ -1,0 +1,32 @@
+#include <iostream>
+using namespace std;
+
+struct Punto {
+    int x;
+    int y;
+};
+
+Punto operator+(Punto a, Punto b) {
+    return {a.x + b.x, a.y + b.y};
+}
+
+Punto operator+(Punto p, int desplazamiento) {
+    p.x = p.x + desplazamiento;
+    return p;
+}
+
+bool operator==(Punto a, Punto b) {
+    return a.x == b.x && a.y == b.y;
+}
+
+int main() {
+    Punto a{3, -2};
+    Punto b = {4, 8};
+    Punto suma = a + b;
+    Punto movido = suma + 2;
+    cout << suma.x << ", " << suma.y << endl;
+    cout << movido.x << ", " << movido.y << endl;
+    cout << (movido == Punto{9, 6}) << endl;
+    cout << a.x << ", " << a.y << endl;
+    return 0;
+}

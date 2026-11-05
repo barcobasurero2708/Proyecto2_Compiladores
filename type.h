@@ -21,11 +21,12 @@ using namespace std;
 class Type {
 public:
 
-    enum Kind { VOID, INT, BOOL, CHAR, FLOAT, DOUBLE, LONG, STRING };
+    enum Kind { VOID, INT, BOOL, CHAR, FLOAT, DOUBLE, LONG, STRING, STRUCT };
 
     static Type deKind(Kind k);
 
     Kind kind;
+    string nombreStruct;          // identidad nominal de un struct
     vector<int> dims;             // dimensiones si es arreglo: int m[2][3] -> {2, 3}; 0 = sin tamaño (parámetro int a[])
     int intValue;
     bool boolValue;
@@ -42,6 +43,7 @@ public:
     bool isString() const;
     bool isNumeric() const;       // tipo aritmético de C++: bool, char, int, long, float, double
     bool isArray() const;
+    bool isStruct() const;
     string kindName() const;
 
     // Reglas de C++ sobre tipos aritméticos

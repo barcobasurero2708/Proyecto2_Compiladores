@@ -21,6 +21,8 @@ class Visitor {
 public:
     // Expresiones
     virtual Type visit(BinaryExp* exp) = 0;
+    virtual Type visit(StructExp* exp) = 0;
+    virtual Type visit(CampoExp* exp) = 0;
     virtual Type visit(NumberExp* exp) = 0;
     virtual Type visit(IdExp* exp) = 0;
     virtual Type visit(IfExp* exp) = 0;
@@ -71,6 +73,7 @@ public:
     void gencode(Programa* program);
 
     // Ayudantes de generación
+    void emitirLlamada(const string& nombre, const vector<Exp*>& argumentos);
     void llamar(const string& funcion);                     // call con la pila alineada a 16 bytes
     void convertir(Type::Kind desde, Type::Kind hacia);     // conversión implícita de C++ sobre %rax
     void aritmetica(BinaryOp op, Type::Kind tipo);          // %rax = %rax op %rcx
@@ -80,6 +83,8 @@ public:
     void cuerpoDeFor(ForStmt* stm);
 
     Type visit(BinaryExp* exp) override;
+    Type visit(StructExp* exp) override;
+    Type visit(CampoExp* exp) override;
     Type visit(NumberExp* exp) override;
     Type visit(IdExp* exp) override;
     Type visit(IfExp* exp) override;
@@ -122,6 +127,8 @@ public:
     void check(Programa* program);
 
     Type visit(BinaryExp* exp) override;
+    Type visit(StructExp* exp) override;
+    Type visit(CampoExp* exp) override;
     Type visit(NumberExp* exp) override;
     Type visit(IdExp* exp) override;
     Type visit(IfExp* exp) override;
@@ -146,6 +153,9 @@ public:
     void visit(Programa* program) override;
 
 private:
+    unordered_map<string, vector<string>> estructuras;
+    int indiceCampo(const Type& tipo, const string& campo);
+    Type resolverSobrecarga(BinaryExp* exp, const Type& izq, const Type& der);
     void esperarBool(Exp* condicion, const string& donde);
     void registrar(FunDec* f);
     Type destino(const string& nombre, const vector<Exp*>& indices, const string& accion);

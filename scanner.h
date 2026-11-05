@@ -16,6 +16,7 @@ private:
 public:
     Scanner(const char* in_s);
     Token* nextToken();
+    Token::Type peekTipo();
     ~Scanner();
 };
 
