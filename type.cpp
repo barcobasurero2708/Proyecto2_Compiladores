@@ -24,6 +24,7 @@ bool Type::isFloat() const   { return esFlotante(kind); }
 bool Type::isString() const  { return kind == STRING && dims.empty(); }
 bool Type::isNumeric() const { return esAritmetico(kind) && dims.empty(); }
 bool Type::isArray() const   { return !dims.empty(); }
+bool Type::isStruct() const  { return kind == STRUCT; }
 
 // bool, char, int, long, float y double son tipos aritméticos en C++
 bool Type::esAritmetico(Kind k) {
@@ -59,13 +60,14 @@ string Type::nombre(Kind k) {
         case DOUBLE: return "double";
         case LONG:   return "long";
         case STRING: return "string";
+        case STRUCT: return "struct";
         default:     return "void";
     }
 }
 
 // Nombre con dimensiones, por ejemplo int[2][3]
 string Type::kindName() const {
-    string r = nombre(kind);
+    string r = isStruct() ? nombreStruct : nombre(kind);
     for (int d : dims) r += d > 0 ? "[" + to_string(d) + "]" : "[]";
     return r;
 }

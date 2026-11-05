@@ -70,6 +70,7 @@ public:
         CONTINUE,
         LBRACKET,    // [
         RBRACKET,    // ]
+        STRUCT, OPERATOR, DOT,
         END
     };
 

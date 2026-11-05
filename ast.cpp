@@ -37,6 +37,14 @@ BinaryExp::~BinaryExp() {
     delete right;
 }
 
+StructExp::~StructExp() {
+    for (Exp* valor : valores) delete valor;
+}
+
+CampoExp::~CampoExp() {
+    delete objeto;
+}
+
 // Crea un literal entero (int) o booleano
 NumberExp::NumberExp(long long v, bool b)  : value(v), esBool(b), tipo(b ? Type::BOOL : Type::INT){}
 

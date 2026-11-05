@@ -42,8 +42,7 @@ enum UnaryOp {
 // Clase base abstracta de todas las expresiones
 class Exp {
 public:
-    Type::Kind tipoExp = Type::VOID;   // tipo de la expresión (lo anota el TypeChecker)
-    vector<int> dimsExp;               // dimensiones si la expresión es un arreglo
+    Type tipoExp;                     // incluye dimensiones e identidad del struct
     virtual Type accept(Visitor* visitor) = 0;
     virtual ~Exp() = 0;
     static string binopToChar(BinaryOp op);
@@ -56,9 +55,31 @@ public:
     Exp* right;
     BinaryOp op;
     Type::Kind tipoOperandos = Type::VOID;  // tipo común al que se convierten ambos operandos
+    string sobrecarga;                     // nombre de la función resuelta
     BinaryExp(Exp* l, Exp* r, BinaryOp op);
     Type accept(Visitor* visitor) override;
     ~BinaryExp();
+};
+
+// Inicialización de un agregado de uno o dos campos int.
+class StructExp : public Exp {
+public:
+    string nombre;
+    vector<Exp*> valores;
+    explicit StructExp(string nombre) : nombre(nombre) {}
+    Type accept(Visitor* visitor) override;
+    ~StructExp() override;
+};
+
+// Acceso a un campo mediante punto, incluso sobre un resultado temporal.
+class CampoExp : public Exp {
+public:
+    Exp* objeto;
+    string campo;
+    int indice = -1;
+    CampoExp(Exp* objeto, string campo) : objeto(objeto), campo(campo) {}
+    Type accept(Visitor* visitor) override;
+    ~CampoExp() override;
 };
 
 // Expresión unaria: -e  o  !e
@@ -158,6 +179,8 @@ public:
     string id;
     vector<Exp*> indices;     // vacío si se asigna a una variable simple
     Exp* e;
+    string campo;             // no vacío para objeto.campo = e
+    int indiceCampo = -1;     // posición resuelta por el TypeChecker
     AssignStmt(string, Exp*);
     AssignStmt(string, vector<Exp*>, Exp*);
     void accept(Visitor* visitor) override;
@@ -287,6 +310,7 @@ public:
 class FunDec {
 public:
     string nombre;
+    string operador;              // símbolo para una función operator
     string tipo;
     vector<string> parametros_tipos;
     vector<string> parametros_id;   // "" si el parámetro no tiene nombre
@@ -301,6 +325,7 @@ public:
 // Raíz del AST: la lista de funciones del programa (una debe ser main)
 class Programa {
 public:
+    unordered_map<string, vector<string>> estructuras;  // campos en orden de declaración
     vector<FunDec*> funciones;
     void accept(Visitor* visitor);
     ~Programa();

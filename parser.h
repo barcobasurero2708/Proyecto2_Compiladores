@@ -11,11 +11,17 @@ private:
     Scanner* scanner;
     Token *current, *previous;
     int loopDepth = 0;          // cantidad de bucles abiertos (para validar break)
+    set<string> tiposEstructura;
+    string tipoRetorno;
     set<string> includes;       // cabeceras incluidas hasta el momento
     bool usingStd = false;      // ya apareció 'using namespace std;'
     bool match(Token::Type ttype);
     bool check(Token::Type ttype);
     bool checkTipo();
+    bool checkDeclaracion();
+    void parseEstructura(Programa* programa);
+    StructExp* parseInicializadorStruct(const string& nombre);
+    Exp* parseAtomo();
     bool advance();
     bool isAtEnd();
     void consume(Token::Type ttype, const string& mensaje);

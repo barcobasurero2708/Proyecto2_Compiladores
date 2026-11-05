@@ -78,6 +78,9 @@ ostream& operator<<(ostream& outs, const Token& tok) {
         case Token::CONTINUE:  outs << "TOKEN(CONTINUE, \"" << tok.text << "\")"; break;
         case Token::LBRACKET:  outs << "TOKEN(LBRACKET, \"" << tok.text << "\")"; break;
         case Token::RBRACKET:  outs << "TOKEN(RBRACKET, \"" << tok.text << "\")"; break;
+        case Token::STRUCT:   outs << "TOKEN(STRUCT, struct)"; break;
+        case Token::OPERATOR: outs << "TOKEN(OPERATOR, operator)"; break;
+        case Token::DOT:      outs << "TOKEN(DOT, .)"; break;
         case Token::END:      outs << "TOKEN(END)"; break;
     }
     return outs;

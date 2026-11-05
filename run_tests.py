@@ -33,6 +33,37 @@ def run_command(command, cwd=None, timeout=10):
 
 
 VALID = {
+    "sobrecargas_con_prototipo_y_promocion": """struct Punto { int x, y; };
+    Punto operator+(Punto, Punto);
+    Punto operator+(Punto a, int n) { return {a.x + n, a.y}; }
+    Punto operator+(Punto a, long n) { return {a.x, a.y + 1}; }
+    int operator-(int n, Punto a) { return n - a.x; }
+    int main() {
+        Punto a{-4, -3}, b{7};
+        Punto c = (a + b) + true;
+        c.y = -9;
+        cout << c.x << " " << c.y << endl;
+        cout << (c + 2147483648).y << " " << (3 - a) << endl;
+        cout << a.x << " " << a.y << endl;
+        return 0;
+    }
+    Punto operator+(Punto a, Punto b) { return {a.x + b.x, a.y + b.y}; }""",
+    "sobrecargas_con_tipos_distintos_y_temporales": """struct A { int n; };
+    struct B { int n; };
+    A operator*(A a, int n) { return {a.n * n}; }
+    B operator*(B b, int n) { return {b.n + n}; }
+    int operator/(A a, int n) { return a.n + n; }
+    bool operator<(A a, A b) { return a.n < b.n; }
+    A identidad(A a) { return a; }
+    int main() {
+        A a = identidad(A{-5});
+        B b{};
+        A c = (true ? a : A{7}) * 3;
+        b = b * 9;
+        cout << c.n << " " << b.n << " " << (c < a) << endl;
+        cout << (a / 0) << " " << 24 / 6 << endl;
+        return 0;
+    }""",
     "declaraciones_en_orden": """int main() {
         int a = 2;
         cout << a << endl;
@@ -302,6 +333,35 @@ VALID = {
 }
 
 INVALID = {
+    "sobrecarga_solo_tipos_basicos": (
+        "int operator+(int a, int b) { return 0; } int main() { return 0; }",
+        "necesita al menos un parámetro struct"),
+    "sobrecarga_ambigua": (
+        """struct A { int x; };
+        int operator+(A a, long b) { return 1; }
+        int operator+(A a, double b) { return 2; }
+        int main() { A a{1}; return a + 3; }""",
+        "sobrecarga ambigua de operator+"),
+    "sobrecarga_no_viable": (
+        """struct A { int x; }; struct B { int x; };
+        A operator+(A a, A b) { return a; }
+        int main() { A a{1}; B b{2}; return (a + b).x; }""",
+        "no hay sobrecarga viable de operator+"),
+    "sobrecarga_redefinida": (
+        """struct A { int x; };
+        A operator+(A a, A b) { return a; }
+        A operator+(A a, A b) { return b; }
+        int main() { return 0; }""",
+        "redefinición"),
+    "struct_campo_inexistente": (
+        "struct A { int x; }; int main() { A a{1}; return a.y; }",
+        "no tiene el campo 'y'"),
+    "struct_identidades_distintas": (
+        "struct A { int x; }; struct B { int x; }; int main() { A a{1}; B b = a; return 0; }",
+        "no se puede inicializar la variable B b"),
+    "struct_inicializador_estrecho": (
+        "struct A { int x; }; int main() { A a{1.5}; return a.x; }",
+        "no admite double"),
     "falta_parentesis": (
         "int main() { cout << (1 + 2 << endl; return 0; }", "se esperaba ')'"),
     "falta_parentesis_anidado": (
@@ -382,6 +442,7 @@ RUNTIME_ERRORS = {
 }
 
 EXISTING = {
+    11: "7, 6\n9, 6\n1\n3, -2\n",
     1: "11\n40\n-4\n14\n",
     2: "120\n3628800\n55\n",
     3: "10\n5\n9\n",
@@ -500,7 +561,7 @@ for name, (source, diagnostic) in INVALID.items():
     setattr(CompilerTests, "test_invalido_" + name, invalid_test(source, diagnostic))
 for name, source in RUNTIME_ERRORS.items():
     setattr(CompilerTests, "test_error_ejecucion_" + name, runtime_test(source))
-for number in range(1, 11):
+for number in range(1, 12):
     setattr(CompilerTests, "test_input_%d" % number,
             existing_test(number, EXISTING.get(number)))
 
