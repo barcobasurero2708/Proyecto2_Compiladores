@@ -16,14 +16,14 @@ bool is_white_space(char c) {
 // Palabras reservadas de C++ (C++20) que el subconjunto no implementa: no pueden
 // usarse como identificadores, igual que en C++.
 static const set<string> RESERVADAS = {
-    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "case", "catch",
-    "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const", "consteval",
+    "alignas", "alignof", "and", "and_eq", "asm", "bitand", "bitor", "catch",
+    "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "consteval",
     "constexpr", "constinit", "const_cast", "co_await", "co_return", "co_yield",
-    "decltype", "default", "delete", "dynamic_cast", "enum", "explicit", "export", "extern",
-    "friend", "goto", "inline", "mutable", "new", "noexcept", "not", "not_eq", "nullptr",
+    "decltype", "delete", "dynamic_cast", "enum", "explicit", "export", "extern",
+    "friend", "goto", "inline", "mutable", "new", "noexcept", "not", "not_eq",
     "or", "or_eq", "private", "protected", "public", "register", "reinterpret_cast",
     "requires", "short", "signed", "sizeof", "static", "static_assert", "static_cast",
-    "switch", "this", "thread_local", "throw", "try", "typedef", "typeid",
+    "this", "thread_local", "throw", "try", "typedef", "typeid",
     "union", "unsigned", "virtual", "volatile", "wchar_t", "xor", "xor_eq"
 };
 
@@ -42,6 +42,8 @@ static Token::Type tipoPalabra(const string& p) {
         {"cout", Token::COUT}, {"endl", Token::ENDL}, {"string", Token::TSTRING},
         {"namespace", Token::NAMESPACE}, {"for", Token::FOR}, {"continue", Token::CONTINUE},
         {"template", Token::TEMPLATE}, {"typename", Token::TYPENAME},
+        {"switch", Token::SWITCH}, {"case", Token::CASE}, {"default", Token::DEFAULT},
+        {"const", Token::CONST}, {"auto", Token::AUTO}, {"nullptr", Token::NULLPTR},
     };
     auto it = CLAVES.find(p);
     if (it != CLAVES.end()) return it->second;
@@ -182,8 +184,8 @@ Token* Scanner::nextToken() {
                     current++;
                     token = new Token(Token::AND, input, first, current + 1 - first);
                 }
-                else {
-                    token = new Token(Token::ERR, c);
+                else {                           // parámetro por referencia
+                    token = new Token(Token::AMP, c);
                 }
                 break;
             case '|':

@@ -12,6 +12,12 @@
 
 class TypeChecker;
 
+// Tipo completo de un nombre de tipo: "int[][3]" -> int con dims {0, 3}
+Type tipoDe(const string& nombre);
+
+// Calcula una expresión constante entera, ya verificada; false si no es constante
+bool constanteEntera(Exp* e, long long& valor);
+
 // Tamaño en la pila de cada variable: int y bool ocupan 8 bytes
 const int TAM_VARIABLE = 8;
 
@@ -30,8 +36,12 @@ public:
     virtual Type visit(UnaryExp* exp) = 0;
     virtual Type visit(ArrayExp* exp) = 0;
     virtual Type visit(IncDecExp* exp) = 0;
+    virtual Type visit(DireccionExp* exp) = 0;
+    virtual Type visit(DerefExp* exp) = 0;
+    virtual Type visit(LongitudExp* exp) = 0;
     // Sentencias
     virtual void visit(AssignStmt* stm) = 0;
+    virtual void visit(AssignPunteroStmt* stm) = 0;
     virtual void visit(PrintStmt* stm) = 0;
     virtual void visit(IfStmt* stm) = 0;
     virtual void visit(WhileStmt* stm) = 0;
@@ -42,6 +52,7 @@ public:
     virtual void visit(ExprStmt* stm) = 0;
     virtual void visit(ForStmt* stm) = 0;
     virtual void visit(ContinueStmt* stm) = 0;
+    virtual void visit(SwitchStmt* stm) = 0;
     // Declaraciones y programa
     virtual void visit(VarDec* dec) = 0;
     virtual void visit(Body* body) = 0;
@@ -63,7 +74,7 @@ public:
     Environment<int> posicion;               // posición en la pila de cada variable / parámetro
     Environment<Type> tipos;                 // tipo de cada variable (y su último valor)
     int etiquetas = 0;                       // contador para generar etiquetas únicas
-    vector<string> finDeBucle;               // etiqueta de salida de cada bucle abierto (para break)
+    vector<string> finDeBucle;               // etiqueta de salida de cada bucle o switch abierto (para break)
     vector<string> siguienteVuelta;          // etiqueta de la siguiente vuelta de cada bucle (para continue)
     unordered_map<string, FunDec*> funciones; // funciones del programa, por nombre
     string funcionActual;                    // función que se está generando (para return)
@@ -80,6 +91,12 @@ public:
     void comparar(BinaryOp op, Type::Kind tipo);            // %rax = (%rax op %rcx) ? 1 : 0
     void condicion(Exp* e);                                 // evalúa e convertida a bool
     void direccion(const string& nombre, const vector<Exp*>& indices);  // %rax = dirección de la variable o elemento
+    void argumentoReferencia(Exp* e, const Type& parametro); // %rax = dirección de un argumento por referencia
+    void potenciaDeDos(BinaryExp* exp);                     // x * 2^k, x / 2^k o x % 2^k con desplazamientos
+    void verificarIndice(const string& nombre, int dimension);  // %rax debe ser un índice válido
+    void verificarNulo();                                   // %rax no debe ser nullptr
+    void pasarLongitud(Exp* arreglo, size_t posicion);      // deja la longitud del arreglo para la función
+    void caracterDeCadena(ArrayExp* exp);                   // s[i]
     void cuerpoDeFor(ForStmt* stm);
 
     Type visit(BinaryExp* exp) override;
@@ -92,7 +109,11 @@ public:
     Type visit(UnaryExp* exp) override;
     Type visit(ArrayExp* exp) override;
     Type visit(IncDecExp* exp) override;
+    Type visit(DireccionExp* exp) override;
+    Type visit(DerefExp* exp) override;
+    Type visit(LongitudExp* exp) override;
     void visit(AssignStmt* stm) override;
+    void visit(AssignPunteroStmt* stm) override;
     void visit(PrintStmt* stm) override;
     void visit(IfStmt* stm) override;
     void visit(WhileStmt* stm) override;
@@ -103,6 +124,7 @@ public:
     void visit(ExprStmt* stm) override;
     void visit(ForStmt* stm) override;
     void visit(ContinueStmt* stm) override;
+    void visit(SwitchStmt* stm) override;
     void visit(VarDec* dec) override;
     void visit(Body* body) override;
     void visit(FunDec* fun) override;
@@ -117,7 +139,8 @@ public:
     set<string> definidas;                    // funciones con cuerpo
     set<string> llamadas;                     // funciones del programa que se llaman
     FunDec* funcionActual = nullptr;          // función que se está verificando
-    int bucles = 0;                           // cantidad de bucles abiertos (para break)
+    int bucles = 0;                           // cantidad de bucles abiertos (para break y continue)
+    int switches = 0;                         // cantidad de switch abiertos (para break)
     Programa* programa = nullptr;             // programa que se verifica (de aquí salen las plantillas)
     vector<FunDec*> instancias;               // funciones nacidas de plantillas; se agregan al programa al final
 
@@ -138,7 +161,11 @@ public:
     Type visit(UnaryExp* exp) override;
     Type visit(ArrayExp* exp) override;
     Type visit(IncDecExp* exp) override;
+    Type visit(DireccionExp* exp) override;
+    Type visit(DerefExp* exp) override;
+    Type visit(LongitudExp* exp) override;
     void visit(AssignStmt* stm) override;
+    void visit(AssignPunteroStmt* stm) override;
     void visit(PrintStmt* stm) override;
     void visit(IfStmt* stm) override;
     void visit(WhileStmt* stm) override;
@@ -149,6 +176,7 @@ public:
     void visit(ExprStmt* stm) override;
     void visit(ForStmt* stm) override;
     void visit(ContinueStmt* stm) override;
+    void visit(SwitchStmt* stm) override;
     void visit(VarDec* dec) override;
     void visit(Body* body) override;
     void visit(FunDec* fun) override;
@@ -160,8 +188,11 @@ private:
     Type resolverSobrecarga(BinaryExp* exp, const Type& izq, const Type& der);
     void esperarBool(Exp* condicion, const string& donde);
     void registrar(FunDec* f);
-    Type destino(const string& nombre, const vector<Exp*>& indices, const string& accion);
+    Type destino(const string& nombre, const vector<Exp*>& indices, const string& accion, vector<int>& dimensiones);
+    void deducirAuto(VarDec* dec);
+    void deducirRetorno(ReturnStmt* stm);
     Type validarLlamada(FCallExp* exp, FunDec* f, const vector<Type>& tiposArgs);
+    void reservarTemporales(FunDec* f, const vector<Exp*>& argumentos);
     Type llamarPlantilla(FCallExp* exp);
     void instanciar(const Plantilla& plantilla, const vector<string>& argsTipo, const string& nombre);
 };

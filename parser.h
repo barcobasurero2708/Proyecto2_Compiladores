@@ -10,7 +10,8 @@ class Parser {
 private:
     Scanner* scanner;
     Token *current, *previous;
-    int loopDepth = 0;          // cantidad de bucles abiertos (para validar break)
+    int loopDepth = 0;          // cantidad de bucles abiertos (para validar break y continue)
+    int switchDepth = 0;        // cantidad de switch abiertos (para validar break)
     set<string> tiposEstructura;
     set<string> plantillas;
     vector<string>* grabando = nullptr;
@@ -35,6 +36,9 @@ private:
     vector<int> parseDimensiones();
     void parseLista(vector<int>& dims, size_t nivel, size_t inicio, vector<Exp*>& elementos);
     Stmt* parseAsignacionOExp();
+    Stmt* parseSwitch();
+    string parseTipoConst(bool& esConst);
+    string parseTipoBase();
 
 public:
     Parser(Scanner* scanner);

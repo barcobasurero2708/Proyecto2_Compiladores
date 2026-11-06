@@ -1,0 +1,40 @@
+#include <iostream>
+#include <string>
+using namespace std;
+
+// Programa correcto que pasa por las verificaciones de seguridad
+int suma(int a[], int n) {
+    int total = 0;
+    for (int i = 0; i < n; i++) {
+        total = total + a[i];
+    }
+    return total;
+}
+
+void poner(int* destino, int valor) {
+    if (destino != nullptr) {
+        *destino = valor;
+    }
+}
+
+int contar(const string& s, char letra) {
+    int veces = 0;
+    for (int i = 0; i < s.size(); i++) {
+        if (s[i] == letra) veces++;
+    }
+    return veces;
+}
+
+int main() {
+    int v[4] = {1, 2, 3, 4};
+    cout << suma(v, 4) << endl;
+
+    int x = 0;
+    poner(&x, 7);
+    poner(nullptr, 9);
+    cout << x << endl;
+
+    string palabra = "seguridad";
+    cout << palabra[0] << " " << palabra.size() << " " << contar(palabra, 'd') << endl;
+    return 0;
+}

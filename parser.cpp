@@ -72,7 +72,10 @@ bool Parser::checkTipo() {
 }
 
 bool Parser::checkDeclaracion() {
-    return checkTipo() && (!check(Token::ID) || scanner->peekTipo() == Token::ID);
+    if (check(Token::CONST) || check(Token::AUTO)) return true;
+    if (!checkTipo()) return false;
+    // Un nombre de struct solo inicia una declaración si le sigue un nombre (o un '*')
+    return !check(Token::ID) || scanner->peekTipo() == Token::ID || scanner->peekTipo() == Token::MUL;
 }
 
 // Verifica que el token actual sea del tipo dado y lo consume; si no, lanza el error
@@ -168,7 +171,7 @@ Programa* Parser::parseProgram() {
         else if (match(Token::TEMPLATE)) {
             parsePlantilla(p);
         }
-        else if (checkTipo() || check(Token::TVOID)) {
+        else if (checkTipo() || check(Token::TVOID) || check(Token::AUTO)) {
             p->funciones.push_back(parseFunDec());
         }
         else {
@@ -286,8 +289,19 @@ FunDec* Parser::instanciar(const Plantilla& pl, const vector<string>& tipos,
     return parser.parseFunDec();
 }
 
-// tipo ::= int | bool | char | float | double | long [long] [int] | string
+// tipo ::= TipoBase [ '*' ]
+// Solo hay punteros a números, de un nivel: todos ocupan una posición de la pila.
 string Parser::parseTipo() {
+    string tipo = parseTipoBase();
+    if (!match(Token::MUL)) return tipo;
+    if (tipo == "string" || tiposEstructura.count(tipo)) {
+        throw runtime_error("Error sintáctico: solo hay punteros a tipos numéricos");
+    }
+    return tipo + "*";
+}
+
+// TipoBase ::= int | bool | char | float | double | long [long] [int] | string
+string Parser::parseTipoBase() {
     if (!checkTipo()) {
         throw runtime_error("Error sintáctico: se esperaba un tipo básico o un struct declarado");
     }
@@ -307,11 +321,23 @@ string Parser::parseTipo() {
     }
 }
 
+// TipoConst ::= [ const ] ( tipo | auto ) [ const ]
+string Parser::parseTipoConst(bool& esConst) {
+    esConst = match(Token::CONST);
+    string tipo = match(Token::AUTO) ? "auto" : parseTipo();
+    if (match(Token::CONST)) esConst = true;
+    if (esConst && tipo.back() == '*') {
+        throw runtime_error("Error sintáctico: no se admiten punteros const");
+    }
+    return tipo;
+}
+
 // FunDec ::= ( tipo | void ) id '(' [ void | Param (',' Param)* ] ')' ( '{' Body '}' | ';' )
-// Param  ::= tipo [ id ] { '[' [ NUM ] ']' }
+// Param  ::= TipoConst [ '&' ] [ id ] { '[' [ NUM ] ']' }
 FunDec* Parser::parseFunDec() {
     FunDec* f = new FunDec();
-    f->tipo = match(Token::TVOID) ? "void" : parseTipo();
+    f->esAuto = match(Token::AUTO);
+    f->tipo = f->esAuto ? "auto" : match(Token::TVOID) ? "void" : parseTipo();
     string etiquetaOperador;
     if (match(Token::OPERATOR)) {
         switch (current->type) {
@@ -336,13 +362,25 @@ FunDec* Parser::parseFunDec() {
     }
     else if (!check(Token::RPAREN)) {
         do {
-            string tipo = parseTipo();
+            bool esConst;
+            string tipo = parseTipoConst(esConst);
+            if (tipo == "auto") throw runtime_error("Error sintáctico: 'auto' no se admite en parámetros");
+            if (tipo.back() == '*' && !f->operador.empty()) {
+                throw runtime_error("Error sintáctico: un operador no admite parámetros puntero");
+            }
+            bool porReferencia = match(Token::AMP);
             f->parametros_id.push_back(check(Token::ID) || check(Token::RESERVED)
                                        ? consumirNombre("se esperaba el nombre del parámetro") : "");
             // Un parámetro arreglo es un puntero a su primer elemento: el tamaño de la
             // primera dimensión no importa (int a[5] es lo mismo que int a[])
             vector<int> dims = parseDimensiones();
             if (!dims.empty()) {
+                if (porReferencia) {
+                    throw runtime_error("Error sintáctico: un arreglo de referencias no es válido");
+                }
+                if (tipo.back() == '*') {
+                    throw runtime_error("Error sintáctico: no se admiten arreglos de punteros");
+                }
                 if (!f->operador.empty() || tiposEstructura.count(tipo)) {
                     throw runtime_error("Error sintáctico: parámetro arreglo no soportado en esta firma");
                 }
@@ -350,14 +388,23 @@ FunDec* Parser::parseFunDec() {
                 for (size_t k = 1; k < dims.size(); k++) tipo += "[" + to_string(dims[k]) + "]";
             }
             f->parametros_tipos.push_back(tipo);
+            f->parametros_ref.push_back(porReferencia);
+            f->parametros_const.push_back(esConst);
         } while (match(Token::COMMA));
     }
     consume(Token::RPAREN, "se esperaba ')' en la función " + f->nombre);
     if (!f->operador.empty()) {
-        for (const string& tipo : f->parametros_tipos) etiquetaOperador += "." + tipo;
+        // '&' no puede ir en una etiqueta de ensamblador: "..ref" distingue operator+(P&, int)
+        for (size_t i = 0; i < f->parametros_tipos.size(); i++) {
+            etiquetaOperador += "." + f->parametros_tipos[i];
+            if (f->parametros_ref[i]) etiquetaOperador += f->parametros_const[i] ? "..cref" : "..ref";
+        }
         f->nombre = etiquetaOperador;
     }
     if (match(Token::SEMICOL)) {
+        if (f->tipo == "auto") {
+            throw runtime_error("Error sintáctico: una función auto necesita cuerpo para deducir su tipo");
+        }
         return f;                                    // prototipo: sin cuerpo
     }
     consume(Token::LBRACE, "se esperaba '{' o ';' después de la cabecera de " + f->nombre);
@@ -435,16 +482,17 @@ void Parser::parseLista(vector<int>& dims, size_t nivel, size_t inicio, vector<E
     consume(Token::RBRACE, "se esperaba '}' al final del inicializador del arreglo");
 }
 
-// VarDec ::= tipo Declarador (',' Declarador)* ';'
+// VarDec ::= TipoConst Declarador (',' Declarador)* ';'
 // Declarador ::= id [ '=' CExp ]  |  id Dims [ '=' Lista ]
 VarDec* Parser::parseVarDec() {
     VarDec* d = new VarDec();
-    d->tipo = parseTipo();
+    d->tipo = parseTipoConst(d->esConst);
     do {
         string nombre = consumirNombre("se esperaba un nombre de variable");
         vector<int> dims = parseDimensiones();
         Exp* init = nullptr;
         vector<Exp*> elementos;
+        bool conLista = false;
         bool esStruct = tiposEstructura.count(d->tipo);
         if (esStruct && !dims.empty()) {
             throw runtime_error("Error sintáctico: no se admiten arreglos de struct");
@@ -459,6 +507,7 @@ VarDec* Parser::parseVarDec() {
                 throw runtime_error("Error sintáctico: el arreglo " + nombre + " se inicializa con { ... }");
             }
             parseLista(dims, 0, 0, elementos);
+            conLista = true;
             if (dims[0] < 0) {
                 // int a[] = {1, 2, 3}: el tamaño sale de la cantidad de elementos
                 size_t fila = 1;
@@ -479,6 +528,16 @@ VarDec* Parser::parseVarDec() {
                 throw runtime_error("Error sintáctico: el arreglo " + nombre + " es demasiado grande");
             }
             elementos.resize(total, nullptr);
+        }
+        if (d->tipo == "auto" && (!init || !dims.empty())) {
+            throw runtime_error("Error sintáctico: auto necesita un inicializador para deducir el tipo de " + nombre);
+        }
+        if (d->tipo.back() == '*' && (!dims.empty() || check(Token::COMMA))) {
+            throw runtime_error("Error sintáctico: declare cada puntero por separado y sin arreglos");
+        }
+        // Un string sin inicializar vale "": es la única constante que no necesita valor
+        if (d->esConst && !init && !conLista && d->tipo != "string") {
+            throw runtime_error("Error sintáctico: la constante " + nombre + " necesita un valor inicial");
         }
         d->variables.push_back(nombre);
         d->inicializadores.push_back(init);
@@ -505,6 +564,7 @@ Exp* Parser::parseCondition() {
 //        | while Condition Stmt
 //        | do Stmt while Condition ';'
 //        | for '(' [ VarDec | Simple ';' | ';' ] [ CExp ] ';' [ Simple ] ')' Stmt
+//        | switch Condition '{' { Stmt | Etiqueta } '}'
 //        | break ';'
 //        | continue ';'
 //        | return [ CExp ] ';'
@@ -589,6 +649,15 @@ Stmt* Parser::parseStmt() {
         loopDepth--;
         return new ForStmt(init, cond, actualizacion, body);
     }
+    else if (match(Token::SWITCH)) {
+        return parseSwitch();
+    }
+    else if (check(Token::CASE) || check(Token::DEFAULT)) {
+        // parseSwitch consume las etiquetas de su bloque: esta no está directamente en él
+        throw runtime_error("Error sintáctico: '" + current->text + "' "
+                            + (switchDepth > 0 ? "solo se admite directamente en el bloque del switch"
+                                               : "fuera de un switch"));
+    }
     else if (match(Token::RETURN)) {
         ReturnStmt* r = new ReturnStmt();
         if (tiposEstructura.count(tipoRetorno) && check(Token::LBRACE)) {
@@ -608,8 +677,8 @@ Stmt* Parser::parseStmt() {
         return new ContinueStmt();
     }
     else if (match(Token::BREAK)) {
-        if (loopDepth == 0) {
-            throw runtime_error("Error sintáctico: 'break' fuera de un bucle");
+        if (loopDepth == 0 && switchDepth == 0) {
+            throw runtime_error("Error sintáctico: 'break' fuera de un bucle o switch");
         }
         consume(Token::SEMICOL, "se esperaba ';' después de break");
         return new BreakStmt();
@@ -620,6 +689,33 @@ Stmt* Parser::parseStmt() {
     // Asignación o sentencia de expresión
     Stmt* s = parseAsignacionOExp();
     consume(Token::SEMICOL, "se esperaba ';' al final de la sentencia");
+    return s;
+}
+
+// Switch   ::= switch Condition '{' { Stmt | Etiqueta } '}'      (switch ya consumido)
+// Etiqueta ::= ( case CExp | default ) ':'
+Stmt* Parser::parseSwitch() {
+    SwitchStmt* s = new SwitchStmt(parseCondition());
+    consume(Token::LBRACE, "se esperaba '{' después de la condición del switch");
+    switchDepth++;
+    while (!check(Token::RBRACE)) {
+        if (isAtEnd()) {
+            throw runtime_error("Error sintáctico: falta '}' al final del switch");
+        }
+        if (!check(Token::CASE) && !check(Token::DEFAULT)) {
+            s->sentencias.push_back(parseStmt());
+            continue;
+        }
+        Exp* valor = match(Token::CASE) ? parseCExp() : nullptr;
+        if (!valor) advance();                          // default
+        consume(Token::COLON, "se esperaba ':' después de la etiqueta del switch");
+        s->etiquetas.push_back({valor, s->sentencias.size()});
+        if (check(Token::RBRACE)) {
+            throw runtime_error("Error sintáctico: se esperaba una sentencia después de la etiqueta del switch");
+        }
+    }
+    switchDepth--;
+    match(Token::RBRACE);
     return s;
 }
 
@@ -636,6 +732,12 @@ Stmt* Parser::parseAsignacionOExp() {
         delete destino;
         valor = parseCExp();
         return new AssignStmt(variable, valor);
+    }
+    if (DerefExp* destino = dynamic_cast<DerefExp*>(e)) {
+        Exp* puntero = destino->puntero;
+        destino->puntero = nullptr;
+        delete destino;
+        return new AssignPunteroStmt(puntero, parseCExp());
     }
     if (ArrayExp* elemento = dynamic_cast<ArrayExp*>(e)) {
         string variable = elemento->nombre;
@@ -742,8 +844,18 @@ Exp* Parser::parseExpr() {
     return l;
 }
 
-// term ::= '-' term | '!' term | ('++' | '--') term | factor
+// term ::= '-' term | '!' term | ('++' | '--') term | '&' factor | '*' term | factor
 Exp* Parser::parseTerm() {
+    if (match(Token::AMP)) {
+        Exp* destino = parseFactor();
+        if (!dynamic_cast<IdExp*>(destino) && !dynamic_cast<ArrayExp*>(destino)) {
+            throw runtime_error("Error sintáctico: '&' necesita una variable o un elemento de arreglo");
+        }
+        return new DireccionExp(destino);
+    }
+    if (match(Token::MUL)) {
+        return new DerefExp(parseTerm());
+    }
     if (match(Token::MINUS)) {
         return new UnaryExp(parseTerm(), NEG_OP);
     }
@@ -770,13 +882,21 @@ Exp* Parser::parseTerm() {
     return parseFactor();
 }
 
-// factor ::= number | true | false | char | string+ | '(' CExp ')'
+// factor ::= number | true | false | nullptr | char | string+ | '(' CExp ')'
 //          | id '(' [CExp (',' CExp)*] ')'
 //          | id { '[' CExp ']' } [ '++' | '--' ]
+//          | factor '.' id | factor '.' ( size | length ) '(' ')'
 Exp* Parser::parseFactor() {
     Exp* objeto = parseAtomo();
     while (match(Token::DOT)) {
-        objeto = new CampoExp(objeto, consumirNombre("se esperaba el nombre del campo"));
+        string campo = consumirNombre("se esperaba el nombre del campo");
+        if ((campo == "size" || campo == "length") && match(Token::LPAREN)) {
+            consume(Token::RPAREN, "se esperaba ')' en " + campo);
+            objeto = new LongitudExp(objeto);
+        }
+        else {
+            objeto = new CampoExp(objeto, campo);
+        }
     }
     return objeto;
 }
@@ -821,6 +941,9 @@ Exp* Parser::parseAtomo() {
     }
     else if (match(Token::FALSE)) {
         return new NumberExp(0, true);
+    }
+    else if (match(Token::NULLPTR)) {
+        return NumberExp::crearNulo();
     }
     else if (match(Token::LPAREN)) {
         Exp* e = parseCExp();

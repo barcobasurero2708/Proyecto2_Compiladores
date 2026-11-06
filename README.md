@@ -6,8 +6,11 @@ Se desarolladrá un compilador de un **subconjunto de C++** (aritmética y sente
 
 - **Scanner**: convierte el código fuente en tokens.
 - **Parser**: descenso recursivo, construye el AST.
-- **TypeChecker**: verifica tipos y reserva de pila.
+- **TypeChecker**: verifica tipos, deduce `auto` y reserva la pila.
+- **Análisis de seguridad**: rangos conocidos y variables sin inicializar.
+- **Optimizaciones del AST**: un visitor por optimización (ver [Optimizaciones](#optimizaciones)).
 - **GencodeVisitor**: genera el `.s` con System V (argumentos en `%rdi`, `%rsi`, ...).
+- **Mirilla**: mejora el ensamblador generado.
 
 ## Estructura del proyecto
 
@@ -19,6 +22,9 @@ Se desarolladrá un compilador de un **subconjunto de C++** (aritmética y sente
 - `type.h` / `type.cpp`: `Type` (int, long, bool, char, float, double, string) y las reglas de conversión aritmética.
 - `environment.h`: entorno con niveles (scopes) para variables.
 - `visitor.h` / `visitor.cpp`: `TypeChecker` y `GencodeVisitor`.
+- `optimizer.h` / `optimizer.cpp`: optimizaciones del AST y grafo de flujo de control.
+- `peephole.h` / `peephole.cpp`: optimización de mirilla sobre el ensamblador.
+- `seguridad.h` / `seguridad.cpp`: análisis estáticos de seguridad.
 - `run_all_inputs.py`: compila y corre todos los archivos de `inputs/`, y deja los `.s` y el reporte en `outputs/`.
 - `inputs/`: programas de prueba (`.txt`).
 - `outputs/`: ensamblador generado y `reporte.txt`.
@@ -77,14 +83,16 @@ Programa ::= { "#include" "<" ("iostream" | "string") ">"
              | "using" "namespace" "std" ";"
              | StructDec | FunDec | Plantilla}
 StructDec ::= "struct" ID "{" { "int" ID { "," ID } ";" } "}" ";"
-FunDec   ::= ( Tipo | "void" ) ( ID | "operator" OpBin ) "(" [ "void" | Param { "," Param } ] ")" ( "{" Body "}" | ";" )
+FunDec   ::= ( Tipo | "void" | "auto" ) ( ID | "operator" OpBin ) "(" [ "void" | Param { "," Param } ] ")" ( "{" Body "}" | ";" )
 Plantilla ::= "template" "<" ParamT { "," ParamT } ">" FunDec
 ParamT    ::= ( "typename" | "class" ) ID
 OpBin    ::= "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | "<=" | ">" | ">="
-Param    ::= Tipo [ ID ] { "[" [ NUM ] "]" }
-Tipo     ::= "int" | "long" ["long"] ["int"] | "bool" | "char" | "float" | "double" | "string" | IDStruct
+Param    ::= TipoConst [ "&" ] [ ID ] { "[" [ NUM ] "]" }
+TipoConst ::= [ "const" ] ( Tipo | "auto" ) [ "const" ]
+Tipo     ::= TipoBase [ "*" ]
+TipoBase ::= "int" | "long" ["long"] ["int"] | "bool" | "char" | "float" | "double" | "string" | IDStruct
 Body     ::= { Stmt }
-VarDec   ::= Tipo Decl { "," Decl } ";"
+VarDec   ::= TipoConst Decl { "," Decl } ";"
 Decl     ::= ID [ "=" CExp ]
            | ID Dims [ "=" Lista ]
            | ID [ "=" ] ListaStruct
@@ -100,11 +108,13 @@ Stmt     ::= VarDec
            | "while" "(" CExp ")" Stmt
            | "do" Stmt "while" "(" CExp ")" ";"
            | "for" "(" ( VarDec | [ Simple ] ";" ) [ CExp ] ";" [ Simple ] ")" Stmt
+           | "switch" "(" CExp ")" "{" { Stmt | Etiqueta } "}"
            | "break" ";"
            | "continue" ";"
            | "return" [ CExp | ListaStruct ] ";"
            | Simple ";"
-Simple   ::= ( ID { "[" CExp "]" } | ID "." ID ) "=" CExp
+Etiqueta ::= ( "case" CExp | "default" ) ":"
+Simple   ::= ( ID { "[" CExp "]" } | ID "." ID | "*" Term ) "=" CExp
            | CExp
 
 CExp     ::= Or [ "?" CExp ":" CExp ]
@@ -114,9 +124,9 @@ Eq       ::= Rel { ("==" | "!=") Rel }
 Rel      ::= BExp { ("<" | "<=" | ">" | ">=") BExp }
 BExp     ::= Expr { ("+" | "-") Expr }
 Expr     ::= Term { ("*" | "/" | "%") Term }
-Term     ::= "-" Term | "!" Term | ("++" | "--") Term | Factor
-Factor   ::= Atomo { "." ID }
-Atomo    ::= NUM | FLOATNUM | CHARLIT | STRLIT { STRLIT } | "true" | "false"
+Term     ::= "-" Term | "!" Term | ("++" | "--") Term | "&" Factor | "*" Term | Factor
+Factor   ::= Atomo { "." ID | "." ( "size" | "length" ) "(" ")" }
+Atomo    ::= NUM | FLOATNUM | CHARLIT | STRLIT { STRLIT } | "true" | "false" | "nullptr"
            | "(" CExp ")"
            | IDStruct ListaStruct
            | ID [ "<" Tipo { "," Tipo } ">" ] "(" [ CExp { "," CExp } ] ")"
@@ -188,6 +198,108 @@ operando de `cout` es una expresión aditiva: `cout << a < b;` es un error y se 
   de la primera dimensión puede deducirse (`int a[] = {1, 2, 3}`). Como parámetro se pasan por
   referencia, igual que en C++ (`int a[]`, `int m[][3]`), y también se puede pasar una fila
   (`f(m[1])`). No se pueden asignar ni imprimir completos.
+- **`switch`**: la condición es entera (`bool`, `char`, `int`, `long`) y cada `case` es una
+  constante entera, que puede ser una expresión (`case 'a':`, `case 2 + 2:`). No se admiten
+  etiquetas repetidas ni más de un `default`, y `default` puede ir en cualquier posición. Sin
+  `break` la ejecución continúa en la etiqueta siguiente. `break` sale del `switch`, y
+  `continue` sigue actuando sobre el bucle que lo contiene. Todo el bloque es un solo ámbito:
+  una etiqueta no puede saltar sobre una declaración con inicializador ni sobre un `string`;
+  en esos casos se encierra el caso entre `{ }`.
+- **Parámetros por referencia**: con `tipo&` (`void f(int& x)`) la función recibe la dirección
+  de la variable y lo que hace con el parámetro afecta al original. Funcionan con todos los
+  tipos, incluidos `string` y `struct`, en prototipos, operadores y plantillas (`T&`). El
+  argumento debe ser una variable o un elemento de arreglo del mismo tipo exacto: sin
+  conversiones ni temporales (`f(3)`, `f(a + 1)` y pasar un `int` a `long&` son errores).
+
+- **`const`**: una variable o parámetro `const` no se puede modificar, ni directamente ni pasándolo
+  a un `T&`. Toda constante necesita valor inicial, salvo `string`. Un `const` entero con valor
+  conocido sirve como etiqueta `case`. `const T&` acepta lo mismo que un parámetro por valor:
+  con una variable del mismo tipo usa el original y, si no, un temporal (`f(3)`, `f(a + 1)`).
+
+- **`auto`**: `auto x = e;` toma el tipo de `e`, sin `const` (`const auto x = e;` lo conserva). Con
+  varias variables, todas deben deducir el mismo tipo. Una función `auto` toma el tipo de su primer
+  `return`, los demás deben coincidir y, sin `return`, es `void`. No se puede llamar antes de
+  deducir su tipo, por lo que una función `auto` recursiva da error. `auto s = "hola";` es `string`,
+  no `const char*` como en C++.
+- **Punteros**: `int* p = &x;`, `*p`, `*p = v`, `nullptr`, y comparar con `==` y `!=`. Un puntero
+  sirve como condición y un puntero sin inicializar vale `nullptr`.
+- **Strings**: `s[i]` lee un carácter y `s.size()` / `s.length()` dan el largo. `s[s.size()]` es
+  válido y vale `'\0'`, como en `std::string`.
+
+### Límites de `auto`, punteros y strings
+
+- `auto` no se admite en parámetros ni en `auto& r` o `auto x{1}`.
+- Solo hay punteros de un nivel a tipos numéricos. No hay aritmética de punteros, punteros `const`,
+  arreglos de punteros, punteros en plantillas, ni `new`/`delete`.
+- Cada puntero se declara por separado. Un puntero no detecta que apunte a una variable que ya
+  dejó de existir.
+- Un carácter de un string no se puede modificar: `s[0] = 'x';` es un error.
+
+### Límites de `switch` y de las referencias
+
+Estos programas son válidos en C++, pero están fuera del subconjunto y se rechazan con un error:
+
+- `case` y `default` deben estar directamente en el bloque del `switch`, no dentro de un bloque o
+  sentencia interna, y el `switch` siempre lleva `{ }`.
+- Una etiqueta tampoco puede saltar sobre la declaración de un arreglo, aunque no tenga inicializador.
+- `switch (int x = f())` y `switch (init; cond)` no están soportados.
+- Solo existen referencias como parámetros: no hay `int& r = x;` local, ni funciones que devuelvan
+  una referencia, ni referencias a arreglos completos.
+- `const` solo se usa en variables locales y parámetros: no hay constantes globales, ni tipos de
+  retorno `const`, y un `const int` no sirve como tamaño de un arreglo.
+- No se puede pasar un campo de struct a un `int&` (`f(p.x)`), porque los campos ocupan 32 bits y
+  el resto de los valores 64. Sí se puede pasar el struct completo (`Punto& p`).
+- El argumento de una referencia no puede ser `++x` ni un `?:`, aunque en C++ sean lvalues.
+
+## Optimizaciones
+
+Están activas por defecto. Con `./a.out archivo.txt --sin-optimizar` se genera el código sin
+optimizar, lo que sirve para comparar. Se aplican en este orden:
+
+| Optimización | Clase | Ejemplo |
+|---|---|---|
+| Expansión en línea (interprocedural) | `ExpansionEnLinea` | `doble(n)` -> `n * 2` |
+| Plegado de constantes | `PlegadoConstantes` | `2 * 3 + 1` -> `7` |
+| Reducción de fuerza | `ReduccionFuerza` | `x * 8` -> `x << 3`, `x + 0` -> `x` |
+| Código inalcanzable (global, con CFG) | `CodigoInalcanzable` | lo que sigue a un `return` |
+| Código muerto (global, con CFG y flujo de datos) | `CodigoMuerto` | `x = 1;` si nadie lee ese valor |
+| Mirilla, sobre el `.s` | `Mirilla` | `jmp L` seguido de `L:` |
+
+Las cinco primeras son visitors que heredan de `Optimizacion`, que recorre todo el AST y permite
+reemplazar nodos. `Mirilla` no es un visitor porque trabaja con líneas de ensamblador, no con el AST.
+
+- **Expansión en línea**: solo expande funciones cuyo cuerpo es `return e;` con `e` sin efectos, y
+  argumentos sin efectos y del tipo exacto del parámetro. Si una función queda sin llamadas, se borra.
+- **Código inalcanzable**: `ConstructorCFG` crea el grafo de la función y se borra lo que no se puede
+  alcanzar desde la entrada. Una condición literal solo deja una salida.
+- **Código muerto**: el análisis de variables vivas calcula, hacia atrás, qué variables se leen
+  después de cada nodo. Una escritura sin lectores se borra si su expresión no tiene efectos. Solo
+  analiza escalares locales declarados una vez: no toca arreglos, referencias ni nombres ocultados.
+- Una división con divisor que pueda ser 0 se considera con efectos, y nunca se calcula en
+  compilación: así se conserva el error de ejecución.
+
+## Seguridad
+
+| Mecanismo | Tipo | Dónde | Ejemplo |
+|---|---|---|---|
+| Índice constante fuera de rango | Estático | `AnalisisRangos` | `int a[3]; a[3] = 1;` |
+| Variable sin inicializar | Estático | `AnalisisInicializacion` | `int x; cout << x;` |
+| Verificación de límites | Dinámico | `GencodeVisitor::verificarIndice` | `a[i]`, `s[i]` |
+| Verificación de puntero nulo | Dinámico | `GencodeVisitor::verificarNulo` | `*p` con `p == nullptr` |
+
+- **Rangos**: el índice debe ser constante (un literal, una expresión o un `const`). Un índice
+  variable como `int i = 5; a[i]` lo detecta la verificación dinámica.
+- **Sin inicializar**: un análisis hacia adelante sobre el CFG calcula si cada variable llega con
+  valor por algún camino y sin valor por algún otro. Si ningún camino le da valor es un error; si
+  solo algunos, es una advertencia, que también aparece en el reporte. Solo analiza variables
+  numéricas locales declaradas una vez: no arreglos, `struct`, referencias, variables pasadas a un
+  `T&` ni con `&` tomado.
+- **Límites**: cada índice se compara sin signo con su dimensión, así que un negativo también falla.
+  Un parámetro `int a[]` no conoce su tamaño, por lo que quien llama deja la longitud real en
+  `.Llongitudes` y la función la copia a su pila al entrar.
+- **Errores de ejecución**: el programa se detiene con un mensaje en `stderr` y código de salida 1.
+  Las optimizaciones no borran un acceso a un arreglo o un `*p`, aunque nadie use su valor, para no
+  perder la verificación.
 
 ## Sobrecarga de operadores
 

@@ -7,6 +7,13 @@ Type Type::deKind(Kind k) {
     return t;
 }
 
+// Tipo de nullptr: se puede asignar a cualquier puntero
+Type Type::nulo() {
+    Type t;
+    t.esPuntero = true;
+    return t;
+}
+
 // Tipo vacío, lo devuelven las sentencias
 Type::Type() : kind(VOID), intValue(0), boolValue(false) {}
 
@@ -18,13 +25,21 @@ Type::Type(bool b) : kind(BOOL), intValue(0), boolValue(b) {}
 
 bool Type::isInt() const     { return kind == INT; }
 bool Type::isBool() const    { return kind == BOOL; }
-bool Type::isVoid() const    { return kind == VOID; }
+bool Type::isVoid() const    { return kind == VOID && !esPuntero; }
 bool Type::isChar() const    { return kind == CHAR; }
 bool Type::isFloat() const   { return esFlotante(kind); }
 bool Type::isString() const  { return kind == STRING && dims.empty(); }
-bool Type::isNumeric() const { return esAritmetico(kind) && dims.empty(); }
+bool Type::isNumeric() const { return esAritmetico(kind) && dims.empty() && !esPuntero; }
 bool Type::isArray() const   { return !dims.empty(); }
 bool Type::isStruct() const  { return kind == STRUCT; }
+bool Type::isNulo() const    { return esPuntero && kind == VOID; }
+
+long long Type::ajustarEntero(Kind k, long long valor) {
+    if (k == BOOL) return valor != 0;
+    if (k == CHAR) return (char)valor;
+    if (k == INT)  return (int)valor;
+    return valor;
+}
 
 // bool, char, int, long, float y double son tipos aritméticos en C++
 bool Type::esAritmetico(Kind k) {
@@ -67,7 +82,9 @@ string Type::nombre(Kind k) {
 
 // Nombre con dimensiones, por ejemplo int[2][3]
 string Type::kindName() const {
+    if (isNulo()) return "nullptr";
     string r = isStruct() ? nombreStruct : nombre(kind);
+    if (esPuntero) r += "*";
     for (int d : dims) r += d > 0 ? "[" + to_string(d) + "]" : "[]";
     return r;
 }

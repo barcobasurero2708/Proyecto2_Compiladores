@@ -1,0 +1,51 @@
+#include <iostream>
+using namespace std;
+
+struct Punto { int x, y; };
+
+// Parámetros por referencia: escalares, struct, elementos de arreglo y plantillas
+void intercambiar(int& a, int& b) {
+    int t = a;
+    a = b;
+    b = t;
+}
+
+void mover(Punto& p, int dx) {
+    p.x = p.x + dx;
+}
+
+void acumular(int n, long& total) {
+    if (n == 0) return;
+    total = total + n;
+    acumular(n - 1, total);
+}
+
+template <typename T>
+void duplicar(T& valor) {
+    valor = valor + valor;
+}
+
+int main() {
+    int a = 1, b = 2;
+    intercambiar(a, b);
+    cout << a << " " << b << endl;
+
+    Punto p{1, 2};
+    mover(p, 10);
+    cout << p.x << " " << p.y << endl;
+
+    int v[3] = {1, 2, 3};
+    intercambiar(v[0], v[2]);
+    cout << v[0] << v[1] << v[2] << endl;
+
+    long total = 0;
+    acumular(10, total);
+    cout << total << endl;
+
+    double d = 1.5;
+    string s = "ja";
+    duplicar(d);
+    duplicar(a);
+    cout << d << " " << a << " " << s << endl;
+    return 0;
+}

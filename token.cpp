@@ -83,6 +83,13 @@ ostream& operator<<(ostream& outs, const Token& tok) {
         case Token::DOT:      outs << "TOKEN(DOT, .)"; break;
         case Token::TEMPLATE: outs << "TOKEN(TEMPLATE, template)"; break;
         case Token::TYPENAME: outs << "TOKEN(TYPENAME, typename)"; break;
+        case Token::SWITCH:   outs << "TOKEN(SWITCH, switch)"; break;
+        case Token::CASE:     outs << "TOKEN(CASE, case)"; break;
+        case Token::DEFAULT:  outs << "TOKEN(DEFAULT, default)"; break;
+        case Token::AMP:      outs << "TOKEN(AMP, &)"; break;
+        case Token::CONST:    outs << "TOKEN(CONST, const)"; break;
+        case Token::AUTO:     outs << "TOKEN(AUTO, auto)"; break;
+        case Token::NULLPTR:  outs << "TOKEN(NULLPTR, nullptr)"; break;
         case Token::END:      outs << "TOKEN(END)"; break;
     }
     return outs;

@@ -73,6 +73,13 @@ public:
         STRUCT, OPERATOR, DOT,
         TEMPLATE,
         TYPENAME,
+        SWITCH,
+        CASE,
+        DEFAULT,
+        AMP,         // & (parámetro por referencia)
+        CONST,
+        AUTO,
+        NULLPTR,
         END
     };
 

@@ -6,10 +6,14 @@
 #include <sys/wait.h>
 #include <chrono>
 #include <iomanip>
+#include <sstream>
 #include "scanner.h"
 #include "parser.h"
 #include "ast.h"
 #include "visitor.h"
+#include "optimizer.h"
+#include "peephole.h"
+#include "seguridad.h"
 
 using namespace std;
 
@@ -48,9 +52,11 @@ int ejecutar_codigo(const string& archivoS, const string& ejecutable, const stri
 
 // Lee el archivo de entrada, guarda sus tokens, lo parsea, genera el .s y guarda su salida
 int main(int argc, const char* argv[]) {
-    if (argc != 2) {
+    bool optimizar = argc == 2;           // --sin-optimizar sirve para comparar resultados
+    bool sinOptimizar = argc == 3 && string(argv[2]) == "--sin-optimizar";
+    if (!optimizar && !sinOptimizar) {
         cout << "Número incorrecto de argumentos.\n";
-        cout << "Uso: " << argv[0] << " <archivo_de_entrada>" << endl;
+        cout << "Uso: " << argv[0] << " <archivo_de_entrada> [--sin-optimizar]" << endl;
         return 1;
     }
 
@@ -94,20 +100,30 @@ int main(int argc, const char* argv[]) {
     string archivoS = base + ".s";
     string archivoSalida = base + "_salida.txt";
 
+    try {
+        analizarSeguridad(ast);
+    } catch (const std::exception& e) {
+        cerr << "Error de seguridad: " << e.what() << endl;
+        return 1;
+    }
+
+    if (optimizar) optimizarAST(ast);
+
+    ostringstream ensamblador;
+    GencodeVisitor code(ensamblador, &checker);
+    try {
+        code.gencode(ast);
+    } catch (const std::exception& e) {
+        cerr << "Error al generar código: " << e.what() << endl;
+        return 1;
+    }
+
     ofstream outS(archivoS);
     if (!outS.is_open()) {
         cerr << "No se pudo crear el archivo: " << archivoS << endl;
         return 1;
     }
-    GencodeVisitor code(outS, &checker);
-    try {
-        code.gencode(ast);
-    } catch (const std::exception& e) {
-        outS.close();
-        remove(archivoS.c_str());
-        cerr << "Error al generar código: " << e.what() << endl;
-        return 1;
-    }
+    outS << (optimizar ? Mirilla().optimizar(ensamblador.str()) : ensamblador.str());
     outS.close();
     cout << "Codigo generado en " << archivoS << endl;
     // Tiempo propio del compilador: scanner + parser + typecheck + generación del .s

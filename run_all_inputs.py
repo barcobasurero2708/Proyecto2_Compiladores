@@ -6,7 +6,8 @@ import shutil
 import time
 
 # Archivos c++
-programa = ["main.cpp", "scanner.cpp", "token.cpp", "parser.cpp", "ast.cpp", "visitor.cpp", "type.cpp"]
+programa = ["main.cpp", "scanner.cpp", "token.cpp", "parser.cpp", "ast.cpp", "visitor.cpp", "type.cpp",
+            "optimizer.cpp", "peephole.cpp", "seguridad.cpp"]
 
 # Compilar
 compile = ["g++"] + programa
@@ -89,6 +90,8 @@ for i in numeros:
         ejercicio = f.read().strip()
 
     paso, typechecker = estado_typechecker(salida, errores)
+    avisos = [l for l in salida.splitlines() if l.startswith("Advertencia")]
+    seguridad = "Seguridad:\n" + "\n".join("  " + a for a in avisos) + "\n\n" if avisos else ""
     if paso is not True:
         resultado = "No se generó: el programa no pasó el TypeChecker" if paso is False \
                     else "No se generó"
@@ -111,6 +114,7 @@ for i in numeros:
                    + f"Resultado de input{i}.s:\n"
                    + resultado + "\n"
                 + "TypeChecker: " + typechecker + "\n\n"
+                   + seguridad
                    + "Tiempos:\n" + tiempos(salida, total) + "\n\n")
 
     # Conservar solo el .s; borrar tokens, salida y ejecutable

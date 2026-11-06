@@ -70,6 +70,13 @@ NumberExp* NumberExp::crearDouble(double d) {
     return e;
 }
 
+// Crea el literal nullptr
+NumberExp* NumberExp::crearNulo() {
+    NumberExp* e = new NumberExp(0);
+    e->tipo = Type::VOID;
+    return e;
+}
+
 // Crea un literal string
 NumberExp* NumberExp::crearString(const string& s) {
     NumberExp* e = new NumberExp(0);
@@ -110,6 +117,15 @@ ArrayExp::ArrayExp(string nombre, vector<Exp*> indices) : nombre(nombre), indice
 
 ArrayExp::~ArrayExp() {
     for (Exp* i : indices) delete i;
+}
+
+DireccionExp::~DireccionExp() { delete destino; }
+DerefExp::~DerefExp() { delete puntero; }
+LongitudExp::~LongitudExp() { delete cadena; }
+
+AssignPunteroStmt::~AssignPunteroStmt() {
+    delete puntero;
+    delete e;
 }
 
 // Crea un incremento o decremento
@@ -213,6 +229,16 @@ BreakStmt::BreakStmt() {}
 
 // Destructor de BreakStmt
 BreakStmt::~BreakStmt() {}
+
+// Crea un switch vacío (el parser agrega las etiquetas y sentencias)
+SwitchStmt::SwitchStmt(Exp* condicion) : condicion(condicion) {}
+
+// Libera la condición, las etiquetas y las sentencias
+SwitchStmt::~SwitchStmt() {
+    delete condicion;
+    for (const Etiqueta& etiqueta : etiquetas) delete etiqueta.expresion;
+    for (Stmt* s : sentencias) delete s;
+}
 
 // Crea una declaración vacía (el parser llena tipo y variables)
 VarDec::VarDec() {}

@@ -28,7 +28,11 @@ enum BinaryOp {
     NE_OP,
     MOD_OP,
     AND_OP,
-    OR_OP
+    OR_OP,
+    // Creados por la reducción de fuerza; el operando derecho es el exponente k
+    SHL_OP,         // x * 2^k
+    DIV_POT2_OP,    // x / 2^k
+    MOD_POT2_OP     // x % 2^k
 };
 
 // Operadores unarios
@@ -106,6 +110,7 @@ public:
     static NumberExp* crearChar(char c);
     static NumberExp* crearDouble(double d);
     static NumberExp* crearString(const string& s);
+    static NumberExp* crearNulo();   // nullptr
     Type accept(Visitor* visitor) override;
     ~NumberExp();
 };
@@ -124,6 +129,8 @@ class ArrayExp : public Exp {
 public:
     string nombre;
     vector<Exp*> indices;
+    vector<int> dimensiones;   // dimensiones del arreglo (las anota el TypeChecker)
+    bool esCaracter = false;   // s[i]: el último índice elige un carácter de un string
     ArrayExp(string nombre, vector<Exp*> indices);
     Type accept(Visitor* visitor) override;
     ~ArrayExp();
@@ -136,9 +143,37 @@ public:
     vector<Exp*> indices;     // vacío si es una variable simple
     bool incremento;          // true = ++, false = --
     bool prefijo;             // true = ++x (devuelve el valor nuevo), false = x++ (devuelve el anterior)
+    vector<int> dimensiones;  // dimensiones del arreglo (las anota el TypeChecker)
     IncDecExp(string nombre, vector<Exp*> indices, bool incremento, bool prefijo);
     Type accept(Visitor* visitor) override;
     ~IncDecExp();
+};
+
+// &destino: dirección de una variable o de un elemento de arreglo
+class DireccionExp : public Exp {
+public:
+    Exp* destino;
+    explicit DireccionExp(Exp* destino) : destino(destino) {}
+    Type accept(Visitor* visitor) override;
+    ~DireccionExp() override;
+};
+
+// *puntero: valor al que apunta
+class DerefExp : public Exp {
+public:
+    Exp* puntero;
+    explicit DerefExp(Exp* puntero) : puntero(puntero) {}
+    Type accept(Visitor* visitor) override;
+    ~DerefExp() override;
+};
+
+// s.size() o s.length()
+class LongitudExp : public Exp {
+public:
+    Exp* cadena;
+    explicit LongitudExp(Exp* cadena) : cadena(cadena) {}
+    Type accept(Visitor* visitor) override;
+    ~LongitudExp() override;
 };
 
 // Expresión condicional: ifexp(CExp, CExp, CExp)
@@ -183,10 +218,21 @@ public:
     Exp* e;
     string campo;             // no vacío para objeto.campo = e
     int indiceCampo = -1;     // posición resuelta por el TypeChecker
+    vector<int> dimensiones;  // dimensiones del arreglo (las anota el TypeChecker)
     AssignStmt(string, Exp*);
     AssignStmt(string, vector<Exp*>, Exp*);
     void accept(Visitor* visitor) override;
     ~AssignStmt();
+};
+
+// Asignación a través de un puntero: *puntero = e
+class AssignPunteroStmt : public Stmt {
+public:
+    Exp* puntero;
+    Exp* e;
+    AssignPunteroStmt(Exp* puntero, Exp* e) : puntero(puntero), e(e) {}
+    void accept(Visitor* visitor) override;
+    ~AssignPunteroStmt() override;
 };
 
 // Sentencia de impresión: cout << e1 << ... (un nullptr representa endl)
@@ -249,12 +295,30 @@ public:
     ~ContinueStmt();
 };
 
-// Sentencia break: sale del while / do-while más interno
+// Sentencia break: sale del bucle o switch más interno
 class BreakStmt : public Stmt {
 public:
     BreakStmt();
     void accept(Visitor* visitor) override;
     ~BreakStmt();
+};
+
+// Sentencia switch: switch (e) { case c: ... default: ... }
+// Las sentencias quedan en una sola lista y cada etiqueta marca dónde empieza a
+// ejecutarse: así, al no haber break, la ejecución sigue en la etiqueta siguiente.
+class SwitchStmt : public Stmt {
+public:
+    struct Etiqueta {
+        Exp* expresion;           // nullptr en default
+        size_t posicion;          // índice de la primera sentencia tras la etiqueta
+        long long valor = 0;      // valor constante calculado por el TypeChecker
+    };
+    Exp* condicion;
+    vector<Etiqueta> etiquetas;   // en orden de aparición
+    vector<Stmt*> sentencias;
+    explicit SwitchStmt(Exp* condicion);
+    void accept(Visitor* visitor) override;
+    ~SwitchStmt();
 };
 
 // Sentencia return: return [CExp] (sale de la función devolviendo el valor)
@@ -294,6 +358,7 @@ public:
     vector<vector<int>> dimensiones;   // por variable: vacío si no es arreglo; int m[2][3] -> {2, 3}
     vector<vector<Exp*>> listas;       // por variable: elementos de { ... } en orden (nullptr = 0)
     string tipo;
+    bool esConst = false;              // const int x = 1;
     VarDec();
     ~VarDec() override;
     void accept(Visitor* visitor) override;
@@ -314,8 +379,11 @@ public:
     string nombre;
     string operador;              // símbolo para una función operator
     string tipo;
+    bool esAuto = false;          // el tipo se deduce de sus return (lo fija el TypeChecker)
     vector<string> parametros_tipos;
     vector<string> parametros_id;   // "" si el parámetro no tiene nombre
+    vector<bool> parametros_ref;    // true si el parámetro se pasa por referencia (tipo&)
+    vector<bool> parametros_const;  // true si el parámetro es const
     Body* cuerpo;                   // nullptr en un prototipo
     void accept(Visitor* visitor);
     FunDec();

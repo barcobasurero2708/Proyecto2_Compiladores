@@ -1,0 +1,36 @@
+#include <iostream>
+using namespace std;
+
+struct Punto { int x, y; };
+
+// auto: el tipo se deduce del valor inicial o del primer return
+auto cuadrado(int n) {
+    return n * n;
+}
+
+auto promedio(double a, double b) {
+    return (a + b) / 2;
+}
+
+Punto crear(int x, int y) {
+    return {x, y};
+}
+
+int main() {
+    auto entero = 5;
+    auto real = 2.5;
+    auto letra = 'z';
+    auto suma = entero + real;
+    auto punto = crear(3, 4);
+    const auto limite = 3;
+
+    cout << entero << " " << real << " " << letra << " " << suma << endl;
+    cout << punto.x << " " << punto.y << endl;
+    cout << cuadrado(limite) << " " << promedio(1, 2) << endl;
+
+    for (auto i = 0; i < limite; i++) {
+        cout << i * 2 << " ";
+    }
+    cout << endl;
+    return 0;
+}

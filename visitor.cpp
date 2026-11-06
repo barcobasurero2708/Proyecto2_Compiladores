@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <cstdio>
 #include <cstdint>
+#include <climits>
 #include <map>
 #include <cstring>
 #include "ast.h"
@@ -16,9 +17,9 @@ using namespace std;
 // Registros donde van los argumentos de una llamada (convención System V)
 static const char* REG_ARGS[6] = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
 
-// Tipo que corresponde a un nombre de tipo (de un arreglo, el de sus elementos: "int[][3]" -> int)
+// Tipo que corresponde a un nombre de tipo (de un arreglo o puntero, el de sus elementos)
 static Type::Kind kindDe(const string& tipo) {
-    string nombre = tipo.substr(0, tipo.find('['));
+    string nombre = tipo.substr(0, tipo.find_first_of("[*"));
     if (nombre == "bool")   return Type::BOOL;
     if (nombre == "int")    return Type::INT;
     if (nombre == "char")   return Type::CHAR;
@@ -30,8 +31,9 @@ static Type::Kind kindDe(const string& tipo) {
 }
 
 // Tipo completo de un nombre de tipo, incluidas las dimensiones: "int[][3]" -> int con dims {0, 3}
-static Type tipoDe(const string& nombre) {
+Type tipoDe(const string& nombre) {
     Type t = Type::deKind(kindDe(nombre));
+    t.esPuntero = nombre.back() == '*';
     size_t i = nombre.find('[');
     if (t.isStruct()) t.nombreStruct = nombre.substr(0, i);
     while (i != string::npos) {
@@ -41,6 +43,27 @@ static Type tipoDe(const string& nombre) {
         i = nombre.find('[', fin);
     }
     return t;
+}
+
+static bool mismoTipo(const Type& a, const Type& b) {
+    return a.kind == b.kind && a.nombreStruct == b.nombreStruct && a.dims == b.dims
+        && a.esPuntero == b.esPuntero;
+}
+
+// Tipo con el que se convierte un valor: un puntero se trata como un entero de 64 bits
+static Type::Kind kindValor(Exp* e) {
+    return e->tipoExp.esPuntero ? Type::LONG : e->tipoExp.kind;
+}
+
+// Solo una variable o un elemento de arreglo se pueden enlazar a un parámetro por referencia
+static bool esVariable(Exp* e) {
+    return dynamic_cast<IdExp*>(e) || dynamic_cast<ArrayExp*>(e);
+}
+
+// Un parámetro const T& usa la variable original si es del mismo tipo;
+// si no (un literal, una expresión, otro tipo), recibe un temporal.
+static bool enlazaDirecto(Exp* argumento, const Type& parametro) {
+    return esVariable(argumento) && mismoTipo(argumento->tipoExp, parametro);
 }
 
 // Bytes entre dos elementos consecutivos del índice k (cada elemento ocupa 8 bytes)
@@ -90,12 +113,16 @@ Type CampoExp::accept(Visitor* visitor)   { return visitor->visit(this); }
 Type UnaryExp::accept(Visitor* visitor)   { return visitor->visit(this); }
 Type ArrayExp::accept(Visitor* visitor)   { return visitor->visit(this); }
 Type IncDecExp::accept(Visitor* visitor)  { return visitor->visit(this); }
+Type DireccionExp::accept(Visitor* visitor) { return visitor->visit(this); }
+Type DerefExp::accept(Visitor* visitor)   { return visitor->visit(this); }
+Type LongitudExp::accept(Visitor* visitor) { return visitor->visit(this); }
 Type NumberExp::accept(Visitor* visitor)  { return visitor->visit(this); }
 Type IdExp::accept(Visitor* visitor)      { return visitor->visit(this); }
 Type IfExp::accept(Visitor* visitor)      { return visitor->visit(this); }
 Type FCallExp::accept(Visitor* visitor)   { return visitor->visit(this); }
 
 void AssignStmt::accept(Visitor* visitor)  { visitor->visit(this); }
+void AssignPunteroStmt::accept(Visitor* visitor) { visitor->visit(this); }
 void PrintStmt::accept(Visitor* visitor)   { visitor->visit(this); }
 void IfStmt::accept(Visitor* visitor)      { visitor->visit(this); }
 void WhileStmt::accept(Visitor* visitor)   { visitor->visit(this); }
@@ -106,6 +133,7 @@ void BlockStmt::accept(Visitor* visitor)   { visitor->visit(this); }
 void ExprStmt::accept(Visitor* visitor)    { visitor->visit(this); }
 void ForStmt::accept(Visitor* visitor)     { visitor->visit(this); }
 void ContinueStmt::accept(Visitor* visitor) { visitor->visit(this); }
+void SwitchStmt::accept(Visitor* visitor)  { visitor->visit(this); }
 
 void VarDec::accept(Visitor* visitor)   { visitor->visit(this); }
 void Body::accept(Visitor* visitor)     { visitor->visit(this); }
@@ -305,13 +333,42 @@ void GencodeVisitor::comparar(BinaryOp op, Type::Kind tipo) {
 // Evalúa la condición de un if / while / do / ?: y la convierte a bool (0 o 1)
 void GencodeVisitor::condicion(Exp* e) {
     e->accept(this);
-    convertir(e->tipoExp.kind, Type::BOOL);
+    convertir(kindValor(e), Type::BOOL);
+}
+
+// Operaciones creadas por la reducción de fuerza; el operando derecho es el exponente k.
+// La división de C++ redondea hacia cero: a un negativo se le suma 2^k - 1 antes de desplazar.
+void GencodeVisitor::potenciaDeDos(BinaryExp* exp) {
+    long long k = dynamic_cast<NumberExp*>(exp->right)->value;
+    exp->left->accept(this);
+    convertir(exp->left->tipoExp.kind, exp->tipoOperandos);
+    if (exp->op == SHL_OP) {
+        out << "shlq $" << k << ", %rax" << endl;
+    }
+    else {
+        if (exp->op == MOD_POT2_OP) out << "movq %rax, %rdx" << endl;   // el dividendo original
+        out << "movq %rax, %rcx" << endl;
+        out << "sarq $63, %rcx" << endl;                                // -1 si es negativo
+        out << "shrq $" << 64 - k << ", %rcx" << endl;                  // 2^k - 1 si es negativo
+        out << "addq %rcx, %rax" << endl;
+        out << "sarq $" << k << ", %rax" << endl;
+        if (exp->op == MOD_POT2_OP) {                                   // x - (x / 2^k) * 2^k
+            out << "shlq $" << k << ", %rax" << endl;
+            out << "subq %rax, %rdx" << endl;
+            out << "movq %rdx, %rax" << endl;
+        }
+    }
+    if (exp->tipoOperandos == Type::INT) out << "movslq %eax, %rax" << endl;
 }
 
 // Genera el código de left op right y deja el resultado en %rax
 Type GencodeVisitor::visit(BinaryExp* exp) {
     if (!exp->sobrecarga.empty()) {
         emitirLlamada(exp->sobrecarga, {exp->left, exp->right});
+        return exp->tipoExp;
+    }
+    if (exp->op == SHL_OP || exp->op == DIV_POT2_OP || exp->op == MOD_POT2_OP) {
+        potenciaDeDos(exp);
         return exp->tipoExp;
     }
     if (exp->op == AND_OP || exp->op == OR_OP) {
@@ -330,11 +387,11 @@ Type GencodeVisitor::visit(BinaryExp* exp) {
     }
     Type::Kind k = exp->tipoOperandos;
     exp->left->accept(this);
-    convertir(exp->left->tipoExp.kind, k);
+    convertir(kindValor(exp->left), k);
     out << "pushq %rax" << endl;
     pila++;
     exp->right->accept(this);
-    convertir(exp->right->tipoExp.kind, k);
+    convertir(kindValor(exp->right), k);
     out << "movq %rax, %rcx" << endl;
     out << "popq %rax" << endl;
     pila--;
@@ -422,9 +479,11 @@ Type GencodeVisitor::visit(NumberExp* exp) {
     return exp->tipoExp;
 }
 
-// Carga el valor de la variable desde la pila en %rax
+// Carga el valor de la variable desde la pila en %rax.
+// Una referencia guarda una dirección: el valor se lee de la variable original.
 Type GencodeVisitor::visit(IdExp* exp) {
     out << "movq " << posicion.lookup(exp->value) * -TAM_VARIABLE << "(%rbp), %rax" << endl;
+    if (tipos.lookup(exp->value).esReferencia) out << "movq (%rax), %rax" << endl;
     return exp->tipoExp;
 }
 
@@ -434,7 +493,9 @@ Type GencodeVisitor::visit(IdExp* exp) {
 void GencodeVisitor::direccion(const string& nombre, const vector<Exp*>& indices) {
     int offset = posicion.lookup(nombre) * -TAM_VARIABLE;
     if (indices.empty()) {
-        out << "leaq " << offset << "(%rbp), %rax" << endl;
+        // La dirección de una referencia es la de la variable original, que ya guarda su slot
+        out << (tipos.lookup(nombre).esReferencia ? "movq " : "leaq ")
+            << offset << "(%rbp), %rax" << endl;
         return;
     }
     vector<int> dims = tipos.lookup(nombre).dims;
@@ -444,6 +505,7 @@ void GencodeVisitor::direccion(const string& nombre, const vector<Exp*>& indices
     for (size_t k = 0; k < indices.size(); k++) {
         indices[k]->accept(this);
         convertir(indices[k]->tipoExp.kind, Type::LONG);
+        verificarIndice(nombre, dims[k]);
         out << "imulq $" << pasoIndice(dims, k) << ", %rax" << endl;
         out << "addq %rax, (%rsp)" << endl;
     }
@@ -451,10 +513,81 @@ void GencodeVisitor::direccion(const string& nombre, const vector<Exp*>& indices
     pila--;
 }
 
+// Verificación de límites: compara sin signo, así un índice negativo también falla.
+// El tamaño de un parámetro int a[] (dimensión 0) se conoce recién al ejecutar.
+void GencodeVisitor::verificarIndice(const string& nombre, int dimension) {
+    if (dimension > 0) {
+        out << "cmpq $" << dimension << ", %rax" << endl;
+    }
+    else {
+        out << "cmpq " << posicion.lookup(nombre + "#longitud") * -TAM_VARIABLE << "(%rbp), %rax" << endl;
+    }
+    out << "jae .Lerror_rango" << endl;
+}
+
+// Verificación de puntero nulo sobre la dirección que está en %rax
+void GencodeVisitor::verificarNulo() {
+    out << "testq %rax, %rax" << endl;
+    out << "je .Lerror_puntero_nulo" << endl;
+}
+
+// s[i]: carga el carácter; como en std::string, s[s.size()] es válido y vale '\0'
+void GencodeVisitor::caracterDeCadena(ArrayExp* exp) {
+    vector<Exp*> hastaLaCadena(exp->indices.begin(), exp->indices.end() - 1);
+    direccion(exp->nombre, hastaLaCadena);
+    out << "movq (%rax), %rax" << endl;
+    out << "pushq %rax" << endl;
+    pila++;
+    exp->indices.back()->accept(this);
+    convertir(exp->indices.back()->tipoExp.kind, Type::LONG);
+    out << "pushq %rax" << endl;
+    pila++;
+    out << "movq 8(%rsp), %rdi" << endl;
+    llamar("strlen");
+    out << "popq %rcx" << endl;
+    out << "popq %rdx" << endl;
+    pila -= 2;
+    out << "cmpq %rax, %rcx" << endl;
+    out << "ja .Lerror_rango" << endl;
+    out << "movsbq (%rdx,%rcx), %rax" << endl;
+}
+
 // a[i][j]: carga el elemento; con menos índices que dimensiones deja la dirección de la fila
 Type GencodeVisitor::visit(ArrayExp* exp) {
+    if (exp->esCaracter) {
+        caracterDeCadena(exp);
+        return exp->tipoExp;
+    }
     direccion(exp->nombre, exp->indices);
     if (exp->tipoExp.dims.empty()) out << "movq (%rax), %rax" << endl;
+    return exp->tipoExp;
+}
+
+// &x, &a[i]: deja la dirección en %rax
+Type GencodeVisitor::visit(DireccionExp* exp) {
+    if (IdExp* variable = dynamic_cast<IdExp*>(exp->destino)) {
+        direccion(variable->value, {});
+    }
+    else {
+        ArrayExp* elemento = dynamic_cast<ArrayExp*>(exp->destino);
+        direccion(elemento->nombre, elemento->indices);
+    }
+    return exp->tipoExp;
+}
+
+// *p: verifica el puntero y carga el valor
+Type GencodeVisitor::visit(DerefExp* exp) {
+    exp->puntero->accept(this);
+    verificarNulo();
+    out << "movq (%rax), %rax" << endl;
+    return exp->tipoExp;
+}
+
+// s.size(): strlen de la cadena
+Type GencodeVisitor::visit(LongitudExp* exp) {
+    exp->cadena->accept(this);
+    out << "movq %rax, %rdi" << endl;
+    llamar("strlen");
     return exp->tipoExp;
 }
 
@@ -538,8 +671,13 @@ Type GencodeVisitor::visit(FCallExp* exp) {
 void GencodeVisitor::emitirLlamada(const string& nombre, const vector<Exp*>& argumentos) {
     FunDec* f = funciones.at(nombre);
     for (size_t i = 0; i < argumentos.size(); i++) {
-        argumentos[i]->accept(this);
-        convertir(argumentos[i]->tipoExp.kind, kindDe(f->parametros_tipos[i]));
+        if (f->parametros_ref[i]) {
+            argumentoReferencia(argumentos[i], tipoDe(f->parametros_tipos[i]));
+        }
+        else {
+            argumentos[i]->accept(this);
+            convertir(argumentos[i]->tipoExp.kind, kindDe(f->parametros_tipos[i]));
+        }
         out << "pushq %rax" << endl;
         pila++;
     }
@@ -547,28 +685,91 @@ void GencodeVisitor::emitirLlamada(const string& nombre, const vector<Exp*>& arg
         out << "popq " << REG_ARGS[i - 1] << endl;
         pila--;
     }
+    for (size_t i = 0; i < argumentos.size(); i++) {
+        if (tipoDe(f->parametros_tipos[i]).isArray()) pasarLongitud(argumentos[i], i);
+    }
     llamar(etiquetaFuncion(nombre));
+}
+
+// Un parámetro int a[] recibe solo un puntero. Su longitud se deja en .Llongitudes, justo
+// antes de la llamada, y la función la copia a su pila al entrar. Si el argumento también
+// es un parámetro sin tamaño conocido, se reenvía la longitud que él recibió.
+void GencodeVisitor::pasarLongitud(Exp* arreglo, size_t posicionArgumento) {
+    int longitud = arreglo->tipoExp.dims[0];
+    string destino = ".Llongitudes+" + to_string(posicionArgumento * TAM_VARIABLE) + "(%rip)";
+    if (longitud > 0) {
+        out << "movq $" << longitud << ", " << destino << endl;
+        return;
+    }
+    string nombre = dynamic_cast<IdExp*>(arreglo)->value;
+    out << "movq " << posicion.lookup(nombre + "#longitud") * -TAM_VARIABLE << "(%rbp), %r10" << endl;
+    out << "movq %r10, " << destino << endl;
+}
+
+// Deja en %rax la dirección que recibe un parámetro por referencia: la de la variable
+// original o, en un const T&, la de un temporal con el valor ya convertido.
+// El TypeChecker reservó en la pila un lugar para cada temporal.
+void GencodeVisitor::argumentoReferencia(Exp* e, const Type& parametro) {
+    if (IdExp* variable = dynamic_cast<IdExp*>(e); variable && enlazaDirecto(e, parametro)) {
+        direccion(variable->value, {});
+    }
+    else if (ArrayExp* elemento = dynamic_cast<ArrayExp*>(e); elemento && enlazaDirecto(e, parametro)) {
+        direccion(elemento->nombre, elemento->indices);
+    }
+    else {
+        e->accept(this);
+        convertir(e->tipoExp.kind, parametro.kind);
+        int offset = contador++ * -TAM_VARIABLE;
+        out << "movq %rax, " << offset << "(%rbp)" << endl;
+        out << "leaq " << offset << "(%rbp), %rax" << endl;
+    }
 }
 
 // Evalúa la expresión y la guarda en la variable o en el elemento del arreglo
 void GencodeVisitor::visit(AssignStmt* stm) {
     Type destino = tipos.lookup(stm->id);            // tipo con el que se declaró la variable
+    int slot = posicion.lookup(stm->id) * -TAM_VARIABLE;
     stm->e->accept(this);
     if (!stm->campo.empty()) {
         convertir(stm->e->tipoExp.kind, Type::INT);
-        int offset = posicion.lookup(stm->id) * -TAM_VARIABLE + 4 * stm->indiceCampo;
-        out << "movl %eax, " << offset << "(%rbp)" << endl;
+        if (destino.esReferencia) {
+            out << "movq " << slot << "(%rbp), %rcx" << endl;
+            out << "movl %eax, " << 4 * stm->indiceCampo << "(%rcx)" << endl;
+        }
+        else {
+            out << "movl %eax, " << slot + 4 * stm->indiceCampo << "(%rbp)" << endl;
+        }
         return;
     }
     convertir(stm->e->tipoExp.kind, destino.kind);
     if (stm->indices.empty()) {
-        out << "movq %rax, " << posicion.lookup(stm->id) * -TAM_VARIABLE << "(%rbp)" << endl;
+        if (destino.esReferencia) {
+            // La dirección se lee al final: el valor ya está calculado y convertido
+            out << "movq " << slot << "(%rbp), %rcx" << endl;
+            out << "movq %rax, (%rcx)" << endl;
+        }
+        else {
+            out << "movq %rax, " << slot << "(%rbp)" << endl;
+        }
         return;
     }
     // a[i] = e: en C++17 el valor se evalúa antes que la posición
     out << "pushq %rax" << endl;
     pila++;
     direccion(stm->id, stm->indices);
+    out << "popq %rcx" << endl;
+    pila--;
+    out << "movq %rcx, (%rax)" << endl;
+}
+
+// *p = e: el valor se evalúa antes que la dirección, como en a[i] = e
+void GencodeVisitor::visit(AssignPunteroStmt* stm) {
+    stm->e->accept(this);
+    convertir(stm->e->tipoExp.kind, stm->puntero->tipoExp.kind);
+    out << "pushq %rax" << endl;
+    pila++;
+    stm->puntero->accept(this);
+    verificarNulo();
     out << "popq %rcx" << endl;
     pila--;
     out << "movq %rcx, (%rax)" << endl;
@@ -697,7 +898,43 @@ void GencodeVisitor::visit(ForStmt* stm) {
     posicion.remove_level(); tipos.remove_level();
 }
 
-// Genera el código del break: salta a la salida del bucle más interno
+// Genera el código del switch: compara el valor con cada case y salta a la etiqueta que
+// coincide (o a default, o al final). Las sentencias van seguidas, por eso sin break la
+// ejecución continúa en la etiqueta siguiente. break usa finDeBucle; continue no cambia
+// y sigue saltando al bucle que contiene al switch.
+void GencodeVisitor::visit(SwitchStmt* stm) {
+    int id = etiquetas++;
+    string fin = ".Lendswitch_" + to_string(id);
+    auto rotulo = [id](size_t k) { return ".Lcase_" + to_string(id) + "_" + to_string(k); };
+
+    stm->condicion->accept(this);                  // los enteros ya están extendidos a 64 bits
+    string sinCoincidencia = fin;
+    for (size_t k = 0; k < stm->etiquetas.size(); k++) {
+        if (!stm->etiquetas[k].expresion) {
+            sinCoincidencia = rotulo(k);           // default se elige solo si ningún case coincide
+            continue;
+        }
+        out << "movabsq $" << stm->etiquetas[k].valor << ", %rcx" << endl;
+        out << "cmpq %rcx, %rax" << endl;
+        out << "je " << rotulo(k) << endl;
+    }
+    out << "jmp " << sinCoincidencia << endl;
+
+    finDeBucle.push_back(fin);
+    posicion.add_level(); tipos.add_level();
+    size_t k = 0;
+    for (size_t i = 0; i < stm->sentencias.size(); i++) {
+        while (k < stm->etiquetas.size() && stm->etiquetas[k].posicion == i) {
+            out << rotulo(k++) << ":" << endl;
+        }
+        stm->sentencias[i]->accept(this);
+    }
+    posicion.remove_level(); tipos.remove_level();
+    finDeBucle.pop_back();
+    out << fin << ":" << endl;
+}
+
+// Genera el código del break: salta a la salida del bucle o switch más interno
 void GencodeVisitor::visit(BreakStmt* stm) {
     out << "jmp " << finDeBucle.back() << endl;
 }
@@ -802,10 +1039,20 @@ void GencodeVisitor::visit(FunDec* fun) {
         const string& p = fun->parametros_id[i];
         int pos = contador++;
         if (!p.empty()) {
+            Type tipo = tipoDe(fun->parametros_tipos[i]);
+            tipo.esReferencia = fun->parametros_ref[i];
             posicion.add_var(p, pos);
-            tipos.add_var(p, tipoDe(fun->parametros_tipos[i]));
+            tipos.add_var(p, tipo);
         }
         out << "movq " << REG_ARGS[i] << ", " << pos * -TAM_VARIABLE << "(%rbp)" << endl;
+    }
+    // Longitud de cada parámetro arreglo, para verificar sus índices
+    for (size_t i = 0; i < fun->parametros_id.size(); i++) {
+        if (!tipoDe(fun->parametros_tipos[i]).isArray()) continue;
+        int pos = contador++;
+        posicion.add_var(fun->parametros_id[i] + "#longitud", pos);
+        out << "movq .Llongitudes+" << i * TAM_VARIABLE << "(%rip), %r10" << endl;
+        out << "movq %r10, " << pos * -TAM_VARIABLE << "(%rbp)" << endl;
     }
 
     fun->cuerpo->accept(this);
@@ -833,18 +1080,23 @@ void GencodeVisitor::visit(Programa* program) {
     out << "print_fmt_nl:.string \"\\n\"" << endl;
     out << ".Lcadena_vacia:.string \"\"" << endl;
     out << ".Lmensaje_division_cero:.string \"Error de ejecucion: division entre cero.\\n\"" << endl;
+    out << ".Lmensaje_rango:.string \"Error de ejecucion: indice fuera de rango.\\n\"" << endl;
+    out << ".Lmensaje_puntero_nulo:.string \"Error de ejecucion: puntero nulo.\\n\"" << endl;
+    out << ".Llongitudes:.zero " << 6 * TAM_VARIABLE << endl;
     out << ".text" << endl;
     out << ".globl main" << endl;
     for (FunDec* f : program->funciones) f->accept(this);
     // Se llega por salto desde cualquier expresión. No retorna y realinea la
     // pila, incluso si había operandos pendientes o llamadas recursivas.
-    out << ".Lerror_division_cero:" << endl;
-    out << "andq $-16, %rsp" << endl;
-    out << "leaq .Lmensaje_division_cero(%rip), %rdi" << endl;
-    out << "movq stderr(%rip), %rsi" << endl;
-    out << "call fputs@PLT" << endl;
-    out << "movl $1, %edi" << endl;
-    out << "call exit@PLT" << endl;
+    for (const char* falla : {"division_cero", "rango", "puntero_nulo"}) {
+        out << ".Lerror_" << falla << ":" << endl;
+        out << "andq $-16, %rsp" << endl;
+        out << "leaq .Lmensaje_" << falla << "(%rip), %rdi" << endl;
+        out << "movq stderr(%rip), %rsi" << endl;
+        out << "call fputs@PLT" << endl;
+        out << "movl $1, %edi" << endl;
+        out << "call exit@PLT" << endl;
+    }
     out << ".section .rodata" << endl;
     for (size_t i = 0; i < cadenas.size(); i++) {
         out << ".Lstr_" << i << ":.string \"" << escaparAsm(cadenas[i]) << "\"" << endl;
@@ -863,12 +1115,14 @@ static void error(const string& msg) {
 
 // Conversión implícita (inicialización, argumento, return): entre tipos aritméticos
 // siempre se puede (como en C++); string solo desde string.
-static bool mismoTipo(const Type& a, const Type& b) {
-    return a.kind == b.kind && a.nombreStruct == b.nombreStruct && a.dims == b.dims;
+static bool convertible(const Type& destino, const Type& origen) {
+    return mismoTipo(destino, origen) || (destino.isNumeric() && origen.isNumeric())
+        || (destino.esPuntero && origen.isNulo());
 }
 
-static bool convertible(const Type& destino, const Type& origen) {
-    return mismoTipo(destino, origen) || (destino.isNumeric() && origen.isNumeric());
+// Una condición acepta números y punteros (un puntero es falso si es nullptr)
+static bool convertibleABool(const Type& t) {
+    return t.isNumeric() || t.esPuntero;
 }
 
 // Anota el tipo completo que utilizará el generador de ensamblador.
@@ -886,6 +1140,66 @@ static bool esEntero(const Type& t) {
     return t.isNumeric() && !t.isFloat();
 }
 
+// Calcula el valor de una expresión constante entera (una etiqueta case, un índice).
+// Devuelve false si no es constante o si desborda, que en C++ también es un error.
+bool constanteEntera(Exp* e, long long& valor) {
+    if (IdExp* id = dynamic_cast<IdExp*>(e)) {
+        valor = id->tipoExp.valorConst;        // una variable const de valor conocido
+        return id->tipoExp.tieneValor;
+    }
+    if (NumberExp* n = dynamic_cast<NumberExp*>(e)) {
+        if (Type::esFlotante(n->tipo) || n->tipo == Type::STRING) return false;
+        valor = n->value;
+        return true;
+    }
+    if (UnaryExp* u = dynamic_cast<UnaryExp*>(e)) {
+        long long a;
+        if (!constanteEntera(u->e, a)) return false;
+        if (u->op == NOT_OP) {
+            valor = !a;
+            return true;
+        }
+        if (a == LLONG_MIN || (u->tipoExp.isInt() && -a > INT_MAX)) return false;
+        valor = -a;
+        return true;
+    }
+    if (IfExp* c = dynamic_cast<IfExp*>(e)) {
+        long long a;
+        if (!constanteEntera(c->condicion, a)) return false;
+        return constanteEntera(a ? c->thenExp : c->elseExp, valor);
+    }
+    BinaryExp* b = dynamic_cast<BinaryExp*>(e);
+    long long a, c, r = 0;
+    if (!b || !b->sobrecarga.empty() || !constanteEntera(b->left, a)) return false;
+    if ((b->op == AND_OP && !a) || (b->op == OR_OP && a)) {    // cortocircuito
+        valor = a != 0;
+        return true;
+    }
+    if (!constanteEntera(b->right, c)) return false;
+    bool desborda = false;
+    switch (b->op) {
+        case PLUS_OP:  desborda = __builtin_add_overflow(a, c, &r); break;
+        case MINUS_OP: desborda = __builtin_sub_overflow(a, c, &r); break;
+        case MUL_OP:   desborda = __builtin_mul_overflow(a, c, &r); break;
+        case DIV_OP: case MOD_OP:
+            if (c == 0 || (a == LLONG_MIN && c == -1)) return false;
+            r = b->op == DIV_OP ? a / c : a % c;
+            break;
+        case LT_OP:  r = a < c;  break;
+        case LE_OP:  r = a <= c; break;
+        case GT_OP:  r = a > c;  break;
+        case GE_OP:  r = a >= c; break;
+        case EQ_OP:  r = a == c; break;
+        case NE_OP:  r = a != c; break;
+        case AND_OP: r = a && c; break;
+        case OR_OP:  r = a || c; break;
+        default:     return false;
+    }
+    if (desborda || (b->tipoOperandos == Type::INT && (r < INT_MIN || r > INT_MAX))) return false;
+    valor = r;
+    return true;
+}
+
 // Verifica todo el programa
 void TypeChecker::check(Programa* program) {
     program->accept(this);
@@ -901,7 +1215,7 @@ int TypeChecker::espacioPila(const string& funcion) {
 // La condición de una sentencia debe poder convertirse a bool (cualquier tipo aritmético)
 void TypeChecker::esperarBool(Exp* condicion, const string& donde) {
     Type c = condicion->accept(this);
-    if (!c.isNumeric()) {
+    if (!convertibleABool(c)) {
         error("la condición del " + donde + " no se puede convertir a bool (es " + c.kindName() + ")");
     }
 }
@@ -953,11 +1267,19 @@ Type TypeChecker::resolverSobrecarga(BinaryExp* exp, const Type& izq, const Type
     };
     vector<Candidato> candidatos;
     string operador = Exp::binopToChar(exp->op);
+    // T& solo admite una variable no const del mismo tipo; const T& acepta como un parámetro por valor
+    auto rango = [](FunDec* funcion, size_t i, Exp* argumento, const Type& tipo) {
+        Type parametro = tipoDe(funcion->parametros_tipos[i]);
+        if (!funcion->parametros_ref[i] || funcion->parametros_const[i]) {
+            return rangoConversion(parametro, tipo);
+        }
+        return esVariable(argumento) && mismoTipo(parametro, tipo) && !tipo.esConst ? 0 : -1;
+    };
     for (const auto& entrada : funciones) {
         FunDec* funcion = entrada.second;
         if (funcion->operador != operador) continue;
-        int rangoIzq = rangoConversion(tipoDe(funcion->parametros_tipos[0]), izq);
-        int rangoDer = rangoConversion(tipoDe(funcion->parametros_tipos[1]), der);
+        int rangoIzq = rango(funcion, 0, exp->left, izq);
+        int rangoDer = rango(funcion, 1, exp->right, der);
         if (rangoIzq >= 0 && rangoDer >= 0) {
             candidatos.push_back({funcion, {rangoIzq, rangoDer}});
         }
@@ -978,6 +1300,7 @@ Type TypeChecker::resolverSobrecarga(BinaryExp* exp, const Type& izq, const Type
         if (mejor) {
             exp->sobrecarga = candidato.funcion->nombre;
             llamadas.insert(exp->sobrecarga);
+            reservarTemporales(candidato.funcion, {exp->left, exp->right});
             return anotar(exp, tipoDe(candidato.funcion->tipo));
         }
     }
@@ -996,9 +1319,18 @@ Type TypeChecker::visit(BinaryExp* exp) {
                     && exp->op != DIV_OP && exp->op != MOD_OP;
 
     if (exp->op == AND_OP || exp->op == OR_OP) {
-        if (!l.isNumeric() || !r.isNumeric()) {
+        if (!convertibleABool(l) || !convertibleABool(r)) {
             error("el operador '" + op + "' necesita operandos convertibles a bool, pero recibió " + operandos);
         }
+        return anotar(exp, Type::BOOL);
+    }
+    // Los punteros solo se comparan por igualdad, con otro del mismo tipo o con nullptr
+    if (l.esPuntero || r.esPuntero) {
+        bool igualdad = exp->op == EQ_OP || exp->op == NE_OP;
+        if (!igualdad || !(mismoTipo(l, r) || convertible(l, r) || convertible(r, l))) {
+            error("el operador '" + op + "' no se puede aplicar a " + operandos);
+        }
+        exp->tipoOperandos = Type::LONG;
         return anotar(exp, Type::BOOL);
     }
     if (exp->op == MOD_OP && (!esEntero(l) || !esEntero(r))) {
@@ -1022,6 +1354,7 @@ Type TypeChecker::visit(BinaryExp* exp) {
 Type TypeChecker::visit(UnaryExp* exp) {
     Type t = exp->e->accept(this);
     string op = exp->op == NOT_OP ? "!" : "-";
+    if (exp->op == NOT_OP && t.esPuntero) return anotar(exp, Type::BOOL);
     if (!t.isNumeric()) {
         error("el operador '" + op + "' no se puede aplicar a " + t.kindName());
     }
@@ -1031,11 +1364,13 @@ Type TypeChecker::visit(UnaryExp* exp) {
 
 // Verifica nombre[i]...[j] (o solo nombre) como destino de una asignación o de ++ / --
 // y devuelve el tipo del elemento
-Type TypeChecker::destino(const string& nombre, const vector<Exp*>& indices, const string& accion) {
+Type TypeChecker::destino(const string& nombre, const vector<Exp*>& indices, const string& accion,
+                          vector<int>& dimensiones) {
     if (!tipos.check(nombre)) {
         error("variable no declarada: " + nombre);
     }
     Type t = tipos.lookup(nombre);
+    dimensiones = t.dims;
     if (indices.size() > t.dims.size()) {
         error(nombre + " no tiene tantas dimensiones (es " + t.kindName() + ")");
     }
@@ -1045,6 +1380,9 @@ Type TypeChecker::destino(const string& nombre, const vector<Exp*>& indices, con
     }
     if (indices.size() < t.dims.size()) {
         error("no se puede " + accion + " un arreglo completo (" + nombre + " es " + t.kindName() + ")");
+    }
+    if (t.esConst) {
+        error("no se puede " + accion + " la constante " + nombre);
     }
     t.dims.clear();
     return t;
@@ -1057,6 +1395,15 @@ Type TypeChecker::visit(ArrayExp* exp) {
         error("variable no declarada: " + exp->nombre);
     }
     Type t = tipos.lookup(exp->nombre);
+    exp->dimensiones = t.dims;
+    if (t.kind == Type::STRING && exp->indices.size() == t.dims.size() + 1) {   // s[i], n[0][i]
+        exp->esCaracter = true;
+        for (Exp* i : exp->indices) {
+            Type ti = i->accept(this);
+            if (!esEntero(ti)) error("el índice de " + exp->nombre + " debe ser entero, pero es " + ti.kindName());
+        }
+        return anotar(exp, Type::CHAR);
+    }
     if (!t.isArray()) {
         error(exp->nombre + " no es un arreglo");
     }
@@ -1074,15 +1421,43 @@ Type TypeChecker::visit(ArrayExp* exp) {
 // ++x / x-- : x es una variable o elemento numérico. En C++17 no se permite sobre bool.
 Type TypeChecker::visit(IncDecExp* exp) {
     string op = exp->incremento ? "++" : "--";
-    Type t = destino(exp->nombre, exp->indices, "aplicar '" + op + "' a");
+    Type t = destino(exp->nombre, exp->indices, "aplicar '" + op + "' a", exp->dimensiones);
     if (!t.isNumeric() || t.isBool()) {
         error("el operador '" + op + "' no se puede aplicar a " + t.kindName());
     }
     return anotar(exp, t.kind);
 }
 
+// &x: x es una variable numérica no const. El resultado es un puntero a su tipo.
+Type TypeChecker::visit(DireccionExp* exp) {
+    Type t = exp->destino->accept(this);
+    if (!t.isNumeric()) error("'&' necesita una variable numérica, pero recibió " + t.kindName());
+    if (t.esConst) error("no se puede tomar la dirección de una constante");
+    if (ArrayExp* elemento = dynamic_cast<ArrayExp*>(exp->destino); elemento && elemento->esCaracter) {
+        error("no se puede tomar la dirección de un carácter de un string");
+    }
+    Type puntero = Type::deKind(t.kind);
+    puntero.esPuntero = true;
+    return anotar(exp, puntero);
+}
+
+// *p: el resultado es el tipo apuntado
+Type TypeChecker::visit(DerefExp* exp) {
+    Type t = exp->puntero->accept(this);
+    if (!t.esPuntero || t.isNulo()) error("'*' necesita un puntero, pero recibió " + t.kindName());
+    return anotar(exp, t.kind);
+}
+
+// s.size() devuelve un entero; aquí se trata como long
+Type TypeChecker::visit(LongitudExp* exp) {
+    Type t = exp->cadena->accept(this);
+    if (!t.isString()) error("size() y length() necesitan un string, pero recibieron " + t.kindName());
+    return anotar(exp, Type::LONG);
+}
+
 // Tipo del literal
 Type TypeChecker::visit(NumberExp* exp) {
+    if (exp->tipo == Type::VOID) return anotar(exp, Type::nulo());
     return anotar(exp, exp->esBool ? Type::BOOL : exp->tipo);
 }
 
@@ -1099,7 +1474,7 @@ Type TypeChecker::visit(IdExp* exp) {
 // se aplica la conversión aritmética usual
 Type TypeChecker::visit(IfExp* exp) {
     Type c = exp->condicion->accept(this);
-    if (!c.isNumeric()) {
+    if (!convertibleABool(c)) {
         error("la condición de ?: no se puede convertir a bool (es " + c.kindName() + ")");
     }
     Type t = exp->thenExp->accept(this);
@@ -1113,10 +1488,22 @@ Type TypeChecker::visit(IfExp* exp) {
     return Type();
 }
 
+// Reserva un lugar en la pila para cada const T& que recibirá un temporal
+void TypeChecker::reservarTemporales(FunDec* f, const vector<Exp*>& argumentos) {
+    for (size_t i = 0; i < argumentos.size(); i++) {
+        if (f->parametros_ref[i] && !enlazaDirecto(argumentos[i], tipoDe(f->parametros_tipos[i]))) {
+            numVariables[funcionActual->nombre]++;
+        }
+    }
+}
+
 // Comprueba que cada argumento (ya visitado: tiposArgs) sea convertible al tipo de su
 // parámetro en f, y anota la llamada con el tipo de retorno de f.
 Type TypeChecker::validarLlamada(FCallExp* exp, FunDec* f, const vector<Type>& tiposArgs) {
     llamadas.insert(f->nombre);
+    if (f->tipo == "auto") {
+        error("no se puede llamar a " + f->nombre + " antes de deducir su tipo de retorno");
+    }
     if (tiposArgs.size() != f->parametros_tipos.size()) {
         error("la función " + f->nombre + " espera " + to_string(f->parametros_tipos.size())
               + " argumento(s), pero recibió " + to_string(tiposArgs.size()));
@@ -1124,10 +1511,36 @@ Type TypeChecker::validarLlamada(FCallExp* exp, FunDec* f, const vector<Type>& t
     for (size_t i = 0; i < tiposArgs.size(); i++) {
         const Type& t = tiposArgs[i];
         Type p = tipoDe(f->parametros_tipos[i]);
+        if (f->parametros_ref[i] && f->parametros_const[i]) {
+            if (t.isArray() || !convertible(p, t)) {
+                error("el argumento " + to_string(i + 1) + " de " + f->nombre + " debe ser "
+                      + f->parametros_tipos[i] + ", pero es " + t.kindName());
+            }
+            continue;
+        }
+        if (f->parametros_ref[i]) {
+            Exp* argumento = exp->argumentos[i];
+            string posicion = "el argumento " + to_string(i + 1) + " de " + f->nombre;
+            if (dynamic_cast<CampoExp*>(argumento)) {
+                error(posicion + ": un campo de struct por referencia no está soportado");
+            }
+            if (!esVariable(argumento)) {
+                error(posicion + " es por referencia: debe ser una variable o un elemento de arreglo");
+            }
+            if (!mismoTipo(p, t)) {
+                error(posicion + " es por referencia: debe ser exactamente "
+                      + f->parametros_tipos[i] + ", pero es " + t.kindName());
+            }
+            if (t.esConst) {
+                error(posicion + " es por referencia y no puede recibir una constante");
+            }
+            continue;
+        }
         bool ok;
         if (p.isArray() || t.isArray()) {
             ok = p.isArray() && t.isArray() && p.kind == t.kind && p.dims.size() == t.dims.size()
-                 && equal(p.dims.begin() + 1, p.dims.end(), t.dims.begin() + 1);
+                 && equal(p.dims.begin() + 1, p.dims.end(), t.dims.begin() + 1)
+                 && (!t.esConst || f->parametros_const[i]);
         }
         else {
             ok = convertible(p, t);
@@ -1137,6 +1550,7 @@ Type TypeChecker::validarLlamada(FCallExp* exp, FunDec* f, const vector<Type>& t
                   + f->parametros_tipos[i] + ", pero es " + t.kindName());
         }
     }
+    reservarTemporales(f, exp->argumentos);
     return anotar(exp, tipoDe(f->tipo));
 }
 
@@ -1151,6 +1565,9 @@ Type TypeChecker::llamarPlantilla(FCallExp* exp) {
     }
     if (exp->targs.size() > pl.tparams.size()) {
         error("demasiados argumentos de plantilla para " + pl.nombre);
+    }
+    for (const string& t : exp->targs) {
+        if (t.back() == '*') error("una plantilla no admite punteros (llamada a " + pl.nombre + ")");
     }
     vector<Type> tiposArgs;
     for (Exp* a : exp->argumentos) tiposArgs.push_back(a->accept(this));
@@ -1171,6 +1588,7 @@ Type TypeChecker::llamarPlantilla(FCallExp* exp) {
         const Type& t = tiposArgs[i];
         if (t.isArray()) error("no se puede deducir " + pt + " a partir de un arreglo (llamada a " + pl.nombre + ")");
         if (t.isVoid())  error("no se puede deducir " + pt + " a partir de una expresión void (llamada a " + pl.nombre + ")");
+        if (t.esPuntero) error("una plantilla no admite punteros (llamada a " + pl.nombre + ")");
         string nombreTipo = t.kindName();
         auto it = enlace.find(pt);
         if (it == enlace.end()) enlace[pt] = nombreTipo;
@@ -1212,9 +1630,11 @@ void TypeChecker::instanciar(const Plantilla& pl, const vector<string>& argsTipo
     // La instancia se verifica con un entorno limpio: no ve las variables de quien la llama
     FunDec* actual = funcionActual;
     int bucleActual = bucles;
+    int switchActual = switches;
     Environment<Type> entorno = tipos;
     tipos.clear();
     bucles = 0;
+    switches = 0;
     try {
         inst->accept(this);
     } catch (const exception& e) {
@@ -1222,6 +1642,7 @@ void TypeChecker::instanciar(const Plantilla& pl, const vector<string>& argsTipo
     }
     funcionActual = actual;
     bucles = bucleActual;
+    switches = switchActual;
     tipos = entorno;
 }
 
@@ -1277,7 +1698,7 @@ Type TypeChecker::visit(FCallExp* exp) {
 // A un string también se le puede asignar un valor aritmético (std::string::operator=(char)).
 void TypeChecker::visit(AssignStmt* stm) {
     Type t = stm->e->accept(this);
-    Type declarado = destino(stm->id, stm->indices, "asignar a");
+    Type declarado = destino(stm->id, stm->indices, "asignar a", stm->dimensiones);
     if (!stm->campo.empty()) {
         stm->indiceCampo = indiceCampo(declarado, stm->campo);
         declarado = Type::deKind(Type::INT);
@@ -1289,6 +1710,18 @@ void TypeChecker::visit(AssignStmt* stm) {
     if (!ok) {
         error("no se puede asignar " + t.kindName() + " a la variable "
               + declarado.kindName() + " " + stm->id);
+    }
+}
+
+// *p = e: p es un puntero y e se puede convertir al tipo apuntado
+void TypeChecker::visit(AssignPunteroStmt* stm) {
+    Type t = stm->e->accept(this);
+    Type puntero = stm->puntero->accept(this);
+    if (!puntero.esPuntero || puntero.isNulo()) {
+        error("'*' necesita un puntero, pero recibió " + puntero.kindName());
+    }
+    if (!convertible(Type::deKind(puntero.kind), t)) {
+        error("no se puede asignar " + t.kindName() + " a través de un " + puntero.kindName());
     }
 }
 
@@ -1304,6 +1737,7 @@ void TypeChecker::visit(PrintStmt* stm) {
             error("cout no puede imprimir un arreglo completo");
         }
         if (t.isStruct()) error("cout necesita un campo de " + t.kindName());
+        if (t.esPuntero) error("cout no puede imprimir un puntero");
     }
 }
 
@@ -1358,10 +1792,57 @@ void TypeChecker::visit(ForStmt* stm) {
     tipos.remove_level();
 }
 
-// break: solo dentro de un bucle
+// switch: condición entera y etiquetas constantes, sin repetir. El bloque es un solo
+// ámbito, y como en C++ una etiqueta no puede saltar sobre una inicialización.
+void TypeChecker::visit(SwitchStmt* stm) {
+    Type c = stm->condicion->accept(this);
+    if (!esEntero(c)) {
+        error("la condición del switch debe ser entera, pero es " + c.kindName());
+    }
+    bool esInt = Type::promover(c.kind) == Type::INT;   // bool y char se promueven a int
+    set<long long> vistos;
+    bool hayDefault = false;
+    for (SwitchStmt::Etiqueta& etiqueta : stm->etiquetas) {
+        if (!etiqueta.expresion) {
+            if (hayDefault) error("el switch tiene más de un default");
+            hayDefault = true;
+            continue;
+        }
+        Type t = etiqueta.expresion->accept(this);
+        if (!esEntero(t) || !constanteEntera(etiqueta.expresion, etiqueta.valor)) {
+            error("la etiqueta case debe ser una constante entera");
+        }
+        if (esInt && (etiqueta.valor < INT_MIN || etiqueta.valor > INT_MAX)) {
+            error("la etiqueta case " + to_string(etiqueta.valor) + " no cabe en int");
+        }
+        if (!vistos.insert(etiqueta.valor).second) {
+            error("etiqueta case repetida: " + to_string(etiqueta.valor));
+        }
+    }
+
+    size_t ultima = stm->etiquetas.empty() ? 0 : stm->etiquetas.back().posicion;
+    switches++;
+    tipos.add_level();
+    for (size_t i = 0; i < stm->sentencias.size(); i++) {
+        stm->sentencias[i]->accept(this);
+        VarDec* dec = dynamic_cast<VarDec*>(stm->sentencias[i]);
+        if (!dec || i >= ultima) continue;              // ninguna etiqueta salta sobre ella
+        for (size_t j = 0; j < dec->variables.size(); j++) {
+            // Un arreglo necesita ejecutar su declaración para fijar el puntero al primer elemento
+            if (dec->inicializadores[j] || dec->tipo == "string" || !dec->dimensiones[j].empty()) {
+                error("una etiqueta del switch salta sobre la declaración de " + dec->variables[j]
+                      + "; encierre el caso entre { }");
+            }
+        }
+    }
+    tipos.remove_level();
+    switches--;
+}
+
+// break: solo dentro de un bucle o switch
 void TypeChecker::visit(BreakStmt* stm) {
-    if (bucles == 0) {
-        error("'break' fuera de un bucle");
+    if (bucles == 0 && switches == 0) {
+        error("'break' fuera de un bucle o switch");
     }
 }
 
@@ -1372,9 +1853,19 @@ void TypeChecker::visit(ContinueStmt* stm) {
     }
 }
 
+// El primer return de una función auto fija su tipo; los siguientes se comparan con ese tipo
+void TypeChecker::deducirRetorno(ReturnStmt* stm) {
+    Type t = stm->exp ? stm->exp->accept(this) : Type();
+    if (t.isArray() || t.isNulo()) {
+        error("no se puede deducir el tipo de retorno de " + funcionActual->nombre);
+    }
+    funcionActual->tipo = t.kindName();
+}
+
 // return [e]: en una función void no hay valor (o es una llamada void);
 // en las demás, e convertible al tipo de la función
 void TypeChecker::visit(ReturnStmt* stm) {
+    if (funcionActual->tipo == "auto") deducirRetorno(stm);
     bool esVoid = funcionActual->tipo == "void";
     if (!stm->exp) {
         if (!esVoid) {
@@ -1390,7 +1881,8 @@ void TypeChecker::visit(ReturnStmt* stm) {
         }
         return;
     }
-    if (t.isArray() || !convertible(tipoDe(funcionActual->tipo), t)) {
+    bool distinto = funcionActual->esAuto && t.kindName() != funcionActual->tipo;
+    if (distinto || t.isArray() || !convertible(tipoDe(funcionActual->tipo), t)) {
         error("la función " + funcionActual->nombre + " debe devolver "
               + funcionActual->tipo + ", pero return devuelve " + t.kindName());
     }
@@ -1410,10 +1902,22 @@ void TypeChecker::visit(ExprStmt* stm) {
 
 // ---------- Declaraciones y programa ----------
 
+// auto x = e: x toma el tipo de e, sin const, igual que en C++
+void TypeChecker::deducirAuto(VarDec* dec) {
+    Type t = dec->inicializadores[0]->accept(this);
+    if (t.isVoid() || t.isArray() || t.isNulo()) {
+        error("no se puede deducir el tipo de " + dec->variables[0] + " a partir de " + t.kindName());
+    }
+    dec->tipo = t.kindName();
+}
+
 // tipo ids: sin variables repetidas en el mismo ámbito. Como en C++, la variable
 // ya es visible dentro de su propio inicializador.
 void TypeChecker::visit(VarDec* dec) {
+    bool esAuto = dec->tipo == "auto";
+    if (esAuto) deducirAuto(dec);
     Type tipo = tipoDe(dec->tipo);
+    tipo.esConst = dec->esConst;
     if (tipo.isVoid()) {
         error("una variable no puede ser de tipo " + dec->tipo);
     }
@@ -1442,9 +1946,21 @@ void TypeChecker::visit(VarDec* dec) {
         numVariables[funcionActual->nombre]++;      // una variable local más
         if (dec->inicializadores[i]) {
             Type t = dec->inicializadores[i]->accept(this);
+            if (esAuto && t.kindName() != dec->tipo) {
+                error("auto dedujo tipos distintos: " + dec->tipo + " y " + t.kindName());
+            }
             if (t.isArray() || !convertible(tipo, t)) {
                 error("no se puede inicializar la variable " + dec->tipo + " " + v
                       + " con un valor " + t.kindName());
+            }
+            // Un const entero con valor conocido sirve en un case y lo aprovecha el plegado
+            long long valor;
+            if (dec->esConst && esEntero(tipo) && esEntero(t)
+                && constanteEntera(dec->inicializadores[i], valor)) {
+                Type constante = tipo;
+                constante.tieneValor = true;
+                constante.valorConst = Type::ajustarEntero(tipo.kind, valor);
+                tipos.update(v, constante);
             }
         }
     }
@@ -1463,20 +1979,35 @@ void TypeChecker::visit(FunDec* fun) {
     tipos.add_level();
     for (size_t i = 0; i < fun->parametros_id.size(); i++) {
         const string& p = fun->parametros_id[i];
+        if (tipoDe(fun->parametros_tipos[i]).isArray()) numVariables[fun->nombre]++;   // su longitud
         if (p.empty()) continue;
         if (tipos.check_local(p)) {
             error("parámetro repetido en " + fun->nombre + ": " + p);
         }
-        tipos.add_var(p, tipoDe(fun->parametros_tipos[i]));
+        Type tipo = tipoDe(fun->parametros_tipos[i]);
+        tipo.esConst = fun->parametros_const[i];
+        tipos.add_var(p, tipo);
     }
     fun->cuerpo->accept(this);
+    if (fun->tipo == "auto") fun->tipo = "void";    // ningún return: la función auto es void
     tipos.remove_level();
     funcionActual = nullptr;
+}
+
+// const solo distingue a una firma en referencias y arreglos: f(const int) es f(int)
+static vector<bool> constDeLaFirma(FunDec* f) {
+    vector<bool> firma;
+    for (size_t i = 0; i < f->parametros_tipos.size(); i++) {
+        bool arreglo = f->parametros_tipos[i].find('[') != string::npos;
+        firma.push_back(f->parametros_const[i] && (f->parametros_ref[i] || arreglo));
+    }
+    return firma;
 }
 
 // Registra la declaración (prototipo o definición) de una función y la compara con
 // las anteriores del mismo nombre
 void TypeChecker::registrar(FunDec* f) {
+    if (f->nombre == "main" && f->tipo == "auto") error("main debe devolver int");
     if (!f->operador.empty()) {
         string nombre = "operator" + f->operador;
         if (f->parametros_tipos.size() != 2) {
@@ -1491,7 +2022,8 @@ void TypeChecker::registrar(FunDec* f) {
     }
     if (funciones.count(f->nombre)) {
         FunDec* previa = funciones[f->nombre];
-        if (previa->parametros_tipos != f->parametros_tipos) {
+        if (previa->parametros_tipos != f->parametros_tipos || previa->parametros_ref != f->parametros_ref
+            || constDeLaFirma(previa) != constDeLaFirma(f)) {
             error("sobrecarga de funciones no soportada: " + f->nombre);
         }
         if (previa->tipo != f->tipo) {

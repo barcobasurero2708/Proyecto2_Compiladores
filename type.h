@@ -24,12 +24,18 @@ public:
     enum Kind { VOID, INT, BOOL, CHAR, FLOAT, DOUBLE, LONG, STRING, STRUCT };
 
     static Type deKind(Kind k);
+    static Type nulo();           // tipo de nullptr
 
     Kind kind;
     string nombreStruct;          // identidad nominal de un struct
     vector<int> dims;             // dimensiones si es arreglo: int m[2][3] -> {2, 3}; 0 = sin tamaño (parámetro int a[])
     int intValue;
     bool boolValue;
+    bool esReferencia = false;    // parámetro por referencia: su slot guarda la dirección de la variable
+    bool esConst = false;         // no se puede modificar
+    bool esPuntero = false;       // puntero a un valor de tipo kind (nullptr: kind es VOID)
+    bool tieneValor = false;      // const con valor entero conocido en compilación
+    long long valorConst = 0;
 
     Type();                       // VOID
     Type(int v);                  // INT con valor v
@@ -44,6 +50,7 @@ public:
     bool isNumeric() const;       // tipo aritmético de C++: bool, char, int, long, float, double
     bool isArray() const;
     bool isStruct() const;
+    bool isNulo() const;
     string kindName() const;
 
     // Reglas de C++ sobre tipos aritméticos
@@ -52,6 +59,7 @@ public:
     static Kind promover(Kind k);            // promoción entera: bool y char -> int
     static Kind comun(Kind a, Kind b);       // conversiones aritméticas usuales
     static string nombre(Kind k);
+    static long long ajustarEntero(Kind k, long long valor);  // valor al guardarlo en un entero de tipo k
 
     friend ostream& operator<<(ostream& outs, const Type& t);
 };
