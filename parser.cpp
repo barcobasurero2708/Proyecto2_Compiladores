@@ -19,6 +19,14 @@ Parser::Parser(Scanner* sc) : scanner(sc) {
     }
 }
 
+// Parser para instanciar una plantilla: parte del contexto que había al definirla
+Parser::Parser(Scanner* sc, const set<string>& estructuras, const set<string>& incs, bool usando)
+    : Parser(sc) {
+    tiposEstructura = estructuras;
+    includes = incs;
+    usingStd = usando;
+}
+
 // Si el token actual es del tipo dado, avanza y devuelve true
 bool Parser::match(Token::Type ttype) {
     if (check(ttype)) {
@@ -38,6 +46,7 @@ bool Parser::check(Token::Type ttype) {
 bool Parser::advance() {
     if (!isAtEnd()) {
         Token* temp = current;
+        if (grabando) grabando->push_back(temp->text);   // dentro de una plantilla: guarda el token
         if (previous) delete previous;
         current = scanner->nextToken();
         previous = temp;
@@ -156,6 +165,9 @@ Programa* Parser::parseProgram() {
         else if (match(Token::STRUCT)) {
             parseEstructura(p);
         }
+        else if (match(Token::TEMPLATE)) {
+            parsePlantilla(p);
+        }
         else if (checkTipo() || check(Token::TVOID)) {
             p->funciones.push_back(parseFunDec());
         }
@@ -206,6 +218,72 @@ StructExp* Parser::parseInicializadorStruct(const string& nombre) {
     }
     consume(Token::RBRACE, "se esperaba '}' al inicializar " + nombre);
     return valor.release();
+}
+
+void Parser::parsePlantilla(Programa* programa) {
+    Plantilla pl;
+    consume(Token::LT, "se esperaba '<' después de 'template'");
+    do {
+        if (check(Token::RESERVED) && current->text == "class") advance();
+        else consume(Token::TYPENAME, "se esperaba 'typename' o 'class' en los parámetros de plantilla");
+        string t = consumirNombre("se esperaba el nombre del parámetro de plantilla");
+        if (tiposEstructura.count(t) || find(pl.tparams.begin(), pl.tparams.end(), t) != pl.tparams.end()) {
+            throw runtime_error("Error sintáctico: parámetro de plantilla repetido o ya declarado: " + t);
+        }
+        pl.tparams.push_back(t);
+    } while (match(Token::COMMA));
+    consume(Token::GT, "se esperaba '>' al cerrar los parámetros de plantilla");
+
+    for (const string& t : pl.tparams) tiposEstructura.insert(t);
+    vector<string> texto;
+    grabando = &texto;
+    FunDec* f = nullptr;
+    try {
+        f = parseFunDec();
+    } catch (...) {
+        grabando = nullptr;
+        for (const string& t : pl.tparams) tiposEstructura.erase(t);
+        throw;
+    }
+    grabando = nullptr;
+    for (const string& t : pl.tparams) tiposEstructura.erase(t);
+
+    if (!f->cuerpo) throw runtime_error("Error sintáctico: la plantilla " + f->nombre + " necesita cuerpo");
+    if (!f->operador.empty()) throw runtime_error("Error sintáctico: plantillas de operadores no soportadas");
+    if (f->nombre == "main") throw runtime_error("Error sintáctico: main no puede ser una plantilla");
+    if (plantillas.count(f->nombre)) throw runtime_error("Error sintáctico: plantilla redeclarada: " + f->nombre);
+
+    pl.nombre = f->nombre;
+    pl.paramTipos = f->parametros_tipos;
+    pl.tokens = texto;
+    pl.includes = includes;
+    pl.usingStd = usingStd;
+    plantillas.insert(pl.nombre);
+    programa->plantillas.emplace(pl.nombre, pl);
+    delete f;
+}
+
+//2do parseo:
+FunDec* Parser::instanciar(const Plantilla& pl, const vector<string>& tipos,
+                           const unordered_map<string, vector<string>>& estructuras) {
+    set<string> structs;
+    for (const auto& e : estructuras) structs.insert(e.first);
+    string fuente;
+    for (const string& tok : pl.tokens) {
+        auto it = find(pl.tparams.begin(), pl.tparams.end(), tok);
+        if (it != pl.tparams.end()) {
+            string tipo = tipos[it - pl.tparams.begin()];
+            if (tipo == "string" && !pl.usingStd) tipo = "std::string";
+            fuente += tipo;
+        }
+        else {
+            fuente += tok;
+        }
+        fuente += ' ';
+    }
+    Scanner sc(fuente.c_str());
+    Parser parser(&sc, structs, pl.includes, pl.usingStd);
+    return parser.parseFunDec();
 }
 
 // tipo ::= int | bool | char | float | double | long [long] [int] | string
@@ -754,9 +832,20 @@ Exp* Parser::parseAtomo() {
         if (tiposEstructura.count(nombre) && check(Token::LBRACE)) {
             return parseInicializadorStruct(nombre);
         }
+        vector<string> targs;
+        if (plantillas.count(nombre) && match(Token::LT)) {
+            do {
+                targs.push_back(parseTipo());
+            } while (match(Token::COMMA));
+            consume(Token::GT, "se esperaba '>' al cerrar los argumentos de plantilla");
+            if (!check(Token::LPAREN)) {
+                throw runtime_error("Error sintáctico: se esperaba '(' después de " + nombre + "<...>");
+            }
+        }
         if (match(Token::LPAREN)) {                 // llamada: id '(' [CExp (',' CExp)*] ')'
             FCallExp* call = new FCallExp();
             call->nombre = nombre;
+            call->targs = targs;
             call->usingStd = usingStd;
             if (nombre.rfind("std::", 0) == 0 && includes.empty()) {
                 throw runtime_error("Error sintáctico: '" + nombre + "' no está declarado (falta #include)");

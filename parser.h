@@ -12,6 +12,8 @@ private:
     Token *current, *previous;
     int loopDepth = 0;          // cantidad de bucles abiertos (para validar break)
     set<string> tiposEstructura;
+    set<string> plantillas;
+    vector<string>* grabando = nullptr;
     string tipoRetorno;
     set<string> includes;       // cabeceras incluidas hasta el momento
     bool usingStd = false;      // ya apareció 'using namespace std;'
@@ -20,6 +22,8 @@ private:
     bool checkTipo();
     bool checkDeclaracion();
     void parseEstructura(Programa* programa);
+    void parsePlantilla(Programa* programa);
+    Parser(Scanner* scanner, const set<string>& estructuras, const set<string>& includes, bool usingStd);
     StructExp* parseInicializadorStruct(const string& nombre);
     Exp* parseAtomo();
     bool advance();
@@ -34,6 +38,8 @@ private:
 
 public:
     Parser(Scanner* scanner);
+    static FunDec* instanciar(const Plantilla& plantilla, const vector<string>& tipos, //2do parseo en lugar de t. ejecucion
+                              const unordered_map<string, vector<string>>& estructuras);
     Programa* parseProgram();
     Body* parseBody();
     VarDec* parseVarDec();

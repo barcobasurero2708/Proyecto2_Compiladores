@@ -7,6 +7,7 @@
 #include <vector>
 #include <ostream>
 #include "type.h"
+#include <set>
 
 using namespace std;
 
@@ -156,6 +157,7 @@ class FCallExp : public Exp {
 public:
     string nombre;               // puede venir calificado: std::max
     vector<Exp*> argumentos;
+    vector<string> targs;        // argumentos de plantilla explícitos: f<int>(x) -> {"int"}
     bool usingStd = false;       // había 'using namespace std;' en el punto de la llamada
     string predefinida;          // "max" o "min" si es std::max / std::min (lo anota el TypeChecker)
     Type accept(Visitor* visitor) override;
@@ -320,12 +322,22 @@ public:
     ~FunDec();
 };
 
+struct Plantilla {
+    string nombre;
+    vector<string> tparams;       // parámetros de plantilla: {"T"} o {"T", "U"}
+    vector<string> paramTipos;    // tipo escrito de cada parámetro de la función: "T", "int", ...
+    vector<string> tokens;        // texto de cada token, desde el tipo de retorno hasta la '}'
+    set<string> includes;         // cabeceras incluidas en el punto de definición
+    bool usingStd = false;        // 'using namespace std;' ya había aparecido
+};
+
 // ==================== Programa ====================
 
 // Raíz del AST: la lista de funciones del programa (una debe ser main)
 class Programa {
 public:
     unordered_map<string, vector<string>> estructuras;  // campos en orden de declaración
+    unordered_map<string, Plantilla> plantillas; 
     vector<FunDec*> funciones;
     void accept(Visitor* visitor);
     ~Programa();

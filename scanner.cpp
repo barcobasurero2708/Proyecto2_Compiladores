@@ -23,8 +23,8 @@ static const set<string> RESERVADAS = {
     "friend", "goto", "inline", "mutable", "new", "noexcept", "not", "not_eq", "nullptr",
     "or", "or_eq", "private", "protected", "public", "register", "reinterpret_cast",
     "requires", "short", "signed", "sizeof", "static", "static_assert", "static_cast",
-    "switch", "template", "this", "thread_local", "throw", "try", "typedef", "typeid",
-    "typename", "union", "unsigned", "virtual", "volatile", "wchar_t", "xor", "xor_eq"
+    "switch", "this", "thread_local", "throw", "try", "typedef", "typeid",
+    "union", "unsigned", "virtual", "volatile", "wchar_t", "xor", "xor_eq"
 };
 
 // Tipo de token de una palabra: palabra clave, reservada o identificador
@@ -39,7 +39,9 @@ static Token::Type tipoPalabra(const string& p) {
         {"namespace", Token::NAMESPACE}, {"for", Token::FOR}, {"continue", Token::CONTINUE},
         // cout, endl y string no son palabras clave en C++, sino nombres de std
         // (el parser exige 'using namespace std;' o el prefijo std::)
-        {"cout", Token::COUT}, {"endl", Token::ENDL}, {"string", Token::TSTRING}
+        {"cout", Token::COUT}, {"endl", Token::ENDL}, {"string", Token::TSTRING},
+        {"namespace", Token::NAMESPACE}, {"for", Token::FOR}, {"continue", Token::CONTINUE},
+        {"template", Token::TEMPLATE}, {"typename", Token::TYPENAME},
     };
     auto it = CLAVES.find(p);
     if (it != CLAVES.end()) return it->second;

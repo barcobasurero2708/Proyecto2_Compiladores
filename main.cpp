@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <cstdio>
 #include <sys/wait.h>
+#include <chrono>
+#include <iomanip>
 #include "scanner.h"
 #include "parser.h"
 #include "ast.h"
@@ -64,6 +66,7 @@ int main(int argc, const char* argv[]) {
     }
     infile.close();
 
+    auto inicio = chrono::steady_clock::now(); //contador de tiempo
     Scanner scanner1(input.c_str());
     Scanner scanner2(input.c_str());
 
@@ -107,8 +110,14 @@ int main(int argc, const char* argv[]) {
     }
     outS.close();
     cout << "Codigo generado en " << archivoS << endl;
+    // Tiempo propio del compilador: scanner + parser + typecheck + generación del .s
+    chrono::duration<double, milli> msCompilacion = chrono::steady_clock::now() - inicio;
+    cout << fixed << setprecision(3) << "Tiempo de compilacion: " << msCompilacion.count() << " ms" << endl;
 
+    auto inicioEjecucion = chrono::steady_clock::now();
     int codigoSalida = ejecutar_codigo(archivoS, base + ".out", archivoSalida);
+    chrono::duration<double, milli> msEjecucion = chrono::steady_clock::now() - inicioEjecucion;
+    cout << "Tiempo de ensamblado y ejecucion: " << msEjecucion.count() << " ms" << endl;
     if (codigoSalida == -1) {
         cerr << "No se pudo ensamblar o ejecutar " << archivoS << endl;
         return 1;
