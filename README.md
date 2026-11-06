@@ -75,9 +75,11 @@ Estos pasos son solo para pruebas personales de las fases iniciales, serán inne
 ```
 Programa ::= { "#include" "<" ("iostream" | "string") ">"
              | "using" "namespace" "std" ";"
-             | StructDec | FunDec }
+             | StructDec | FunDec | Plantilla}
 StructDec ::= "struct" ID "{" { "int" ID { "," ID } ";" } "}" ";"
 FunDec   ::= ( Tipo | "void" ) ( ID | "operator" OpBin ) "(" [ "void" | Param { "," Param } ] ")" ( "{" Body "}" | ";" )
+Plantilla ::= "template" "<" ParamT { "," ParamT } ">" FunDec
+ParamT    ::= ( "typename" | "class" ) ID
 OpBin    ::= "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | "<=" | ">" | ">="
 Param    ::= Tipo [ ID ] { "[" [ NUM ] "]" }
 Tipo     ::= "int" | "long" ["long"] ["int"] | "bool" | "char" | "float" | "double" | "string" | IDStruct
@@ -117,7 +119,7 @@ Factor   ::= Atomo { "." ID }
 Atomo    ::= NUM | FLOATNUM | CHARLIT | STRLIT { STRLIT } | "true" | "false"
            | "(" CExp ")"
            | IDStruct ListaStruct
-           | ID "(" [ CExp { "," CExp } ] ")"
+           | ID [ "<" Tipo { "," Tipo } ">" ] "(" [ CExp { "," CExp } ] ")"
            | ID { "[" CExp "]" } [ "++" | "--" ]
 ```
 
@@ -217,6 +219,40 @@ Ejecuta `python3 run_all_inputs.py` y busca `input11.txt` en
 - El alcance de esta implementación son agregados simples y sobrecargas
   binarias. Métodos, referencias, arreglos de `struct` y `operator<<` quedan
   fuera de este subconjunto.
+
+## Templates de función
+
+Se soportan plantillas de función con `template <typename T>` (o `class T`) y uno o más
+parámetros. Cualquier función puede ser plantilla, no solo `max` o `min`:
+
+```cpp
+template <typename T>
+T sumar(T a, T b) { return a + b; }
+
+int main() {
+    cout << sumar(2, 3) << endl;        // T = int
+    cout << sumar(1.5, 2.25) << endl;   // T = double
+}
+```
+Se aplicó el proceso de monomorfización, todo en tiempo de compilación. Por cada combinación de tipos usada se
+genera una función normal, con etiqueta propia (`fn_sumar.int`, `fn_sumar.double`).
+
+1. **Definición** (`Parser::parsePlantilla`): se parsea la función una vez, tratando `T`
+   como un tipo, para detectar errores de sintaxis. El AST se descarta y se guardan los
+   tokens (`Plantilla`, en `Programa::plantillas`).
+2. **Llamada** (`TypeChecker::llamarPlantilla`): se deducen los tipos de `T`. Se construye
+   el nombre de la instancia (`sumar.int`) y la llamada pasa a apuntar a ella.
+3. **Instanciación** (`Parser::instanciar` y `TypeChecker::instanciar`): segundo parseo de
+   los tokens con `T` reemplazado por el tipo concreto. La función resultante se registra
+   y se verifica con un entorno limpio, y se agrega al programa.
+
+El generador de código x86 no distingue una instancia de una función escrita a mano. Los
+operadores sobrecargados funcionan dentro de plantillas: `a + b` con `T = Punto` resuelve
+`operator+(Punto, Punto)`.
+
+- Solo plantillas de función (no de `struct`), y no pueden ser `operator` ni `main`.
+- La plantilla debe tener cuerpo (sin prototipos) y declararse antes de usarse.
+- `T` no puede ser arreglo (`T a[]`); sí puede haber parámetros arreglo de tipo fijo.
 
 ## Limitaciones (fuera del subconjunto)
 
