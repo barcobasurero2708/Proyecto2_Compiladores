@@ -1,0 +1,36 @@
+#include <iostream>
+using namespace std;
+
+template <typename T>
+T sumar(T a, T b) {
+    return a + b;
+}
+
+template <typename T>
+T restar(T a, T b) {
+    return a - b;
+}
+
+template <typename T>
+T promedio3(T a, T b, T c) {
+    return (a + b + c) / 3;
+}
+
+template <typename T>
+bool esPositivo(T x) {
+    return x > 0;
+}
+
+int main() {
+    cout << sumar(2, 3) << endl;          // T = int
+    cout << sumar(1.5, 2.25) << endl;     // T = double
+    long a = 4000000000;
+    long b = 5;
+    cout << sumar(a, b) << endl;          // T = long
+    cout << restar(10, 4) << endl;
+    cout << restar(0.5, 2.0) << endl;
+    cout << promedio3(3, 6, 9) << endl;
+    cout << promedio3(1.0, 2.0, 4.0) << endl;
+    cout << esPositivo(-3) << esPositivo(2.5) << endl;
+    return 0;
+}

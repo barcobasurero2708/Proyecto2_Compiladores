@@ -1,0 +1,40 @@
+#include <iostream>
+using namespace std;
+
+struct Punto { int x, y; };
+
+Punto operator+(Punto a, Punto b) { return {a.x + b.x, a.y + b.y}; }
+Punto operator*(Punto a, Punto b) { return {a.x * b.x, a.y * b.y}; }
+int operator==(Punto a, Punto b) { return a.x == b.x && a.y == b.y; }
+bool operator<(Punto a, Punto b) { return a.x < b.x; }
+
+template <typename T>
+T sumar(T a, T b) { return a + b; }
+
+template <typename T>
+T multiplicar(T a, T b) { return a * b; }
+
+template <typename T>
+T menor(T a, T b) { return a < b ? a : b; }
+
+template <typename T>
+bool iguales(T a, T b) { return a == b; }
+
+template <typename T>
+T sumar3(T a, T b, T c) { return sumar(sumar(a, b), c); }
+
+int main() {
+    Punto p = {1, 2};
+    Punto q = {3, 4};
+    Punto r = sumar(p, q);
+    cout << r.x << ", " << r.y << endl;
+    Punto s = multiplicar(p, q);
+    cout << s.x << ", " << s.y << endl;
+    Punto t = sumar3(p, q, p);
+    cout << t.x << ", " << t.y << endl;
+    cout << menor(q, p).x << endl;
+    cout << iguales(p, p) << iguales(p, q) << endl;
+    cout << sumar(10, 20) << endl;
+    cout << sumar3(1.5, 2.5, 3.0) << endl;
+    return 0;
+}

@@ -3,6 +3,7 @@ import re
 import signal
 import subprocess
 import shutil
+import time
 
 # Archivos c++
 programa = ["main.cpp", "scanner.cpp", "token.cpp", "parser.cpp", "ast.cpp", "visitor.cpp", "type.cpp"]
@@ -48,6 +49,13 @@ def ejecutar(filepath):
         salida, errores = proceso.communicate()
         return 1, salida, f"el programa no terminó en {LIMITE_SEGUNDOS} s"
 
+def tiempos(salida, total):
+    def buscar(etiqueta):
+        m = re.search(rf"^{etiqueta}: ([\d.]+) ms$", salida, re.MULTILINE)
+        return f"{float(m.group(1)):.3f} ms" if m else "no medido"
+    return (f"  Compilación (scanner, parser, typecheck, gencode): {buscar('Tiempo de compilacion')}\n"
+            f"  Ensamblado (gcc) y ejecución:                     {buscar('Tiempo de ensamblado y ejecucion')}\n"
+            f"  Total del proceso:                                {total * 1000:.3f} ms")
 
 def estado_typechecker(salida, errores):
     """Devuelve (pasó, texto) a partir de lo que imprimió el compilador."""
@@ -67,7 +75,9 @@ for i in numeros:
     filename = f"input{i}.txt"
     filepath = os.path.join(input_dir, filename)
     print(f"Ejecutando {filename}")
+    t0 = time.perf_counter()
     codigo, salida, errores = ejecutar(filepath)
+    total = time.perf_counter() - t0
 
     # Archivos que genera el compilador en inputs/
     tokens_file = os.path.join(input_dir, f"input{i}_tokens.txt")
@@ -99,7 +109,9 @@ for i in numeros:
                    + ejercicio + "\n\n"
                    + "TypeChecker: " + typechecker + "\n\n"
                    + f"Resultado de input{i}.s:\n"
-                   + resultado + "\n")
+                   + resultado + "\n"
+                + "TypeChecker: " + typechecker + "\n\n"
+                   + "Tiempos:\n" + tiempos(salida, total) + "\n\n")
 
     # Conservar solo el .s; borrar tokens, salida y ejecutable
     if os.path.isfile(asm_file):

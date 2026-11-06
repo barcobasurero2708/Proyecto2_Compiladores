@@ -81,6 +81,8 @@ ostream& operator<<(ostream& outs, const Token& tok) {
         case Token::STRUCT:   outs << "TOKEN(STRUCT, struct)"; break;
         case Token::OPERATOR: outs << "TOKEN(OPERATOR, operator)"; break;
         case Token::DOT:      outs << "TOKEN(DOT, .)"; break;
+        case Token::TEMPLATE: outs << "TOKEN(TEMPLATE, template)"; break;
+        case Token::TYPENAME: outs << "TOKEN(TYPENAME, typename)"; break;
         case Token::END:      outs << "TOKEN(END)"; break;
     }
     return outs;

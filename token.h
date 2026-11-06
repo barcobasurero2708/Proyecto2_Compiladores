@@ -71,6 +71,8 @@ public:
         LBRACKET,    // [
         RBRACKET,    // ]
         STRUCT, OPERATOR, DOT,
+        TEMPLATE,
+        TYPENAME,
         END
     };
 

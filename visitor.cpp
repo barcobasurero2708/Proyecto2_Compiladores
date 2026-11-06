@@ -5,8 +5,10 @@
 #include <unordered_map>
 #include <cstdio>
 #include <cstdint>
+#include <map>
 #include <cstring>
 #include "ast.h"
+#include "parser.h"
 #include "visitor.h"
 
 using namespace std;
@@ -1111,6 +1113,118 @@ Type TypeChecker::visit(IfExp* exp) {
     return Type();
 }
 
+// Comprueba que cada argumento (ya visitado: tiposArgs) sea convertible al tipo de su
+// parámetro en f, y anota la llamada con el tipo de retorno de f.
+Type TypeChecker::validarLlamada(FCallExp* exp, FunDec* f, const vector<Type>& tiposArgs) {
+    llamadas.insert(f->nombre);
+    if (tiposArgs.size() != f->parametros_tipos.size()) {
+        error("la función " + f->nombre + " espera " + to_string(f->parametros_tipos.size())
+              + " argumento(s), pero recibió " + to_string(tiposArgs.size()));
+    }
+    for (size_t i = 0; i < tiposArgs.size(); i++) {
+        const Type& t = tiposArgs[i];
+        Type p = tipoDe(f->parametros_tipos[i]);
+        bool ok;
+        if (p.isArray() || t.isArray()) {
+            ok = p.isArray() && t.isArray() && p.kind == t.kind && p.dims.size() == t.dims.size()
+                 && equal(p.dims.begin() + 1, p.dims.end(), t.dims.begin() + 1);
+        }
+        else {
+            ok = convertible(p, t);
+        }
+        if (!ok) {
+            error("el argumento " + to_string(i + 1) + " de " + f->nombre + " debe ser "
+                  + f->parametros_tipos[i] + ", pero es " + t.kindName());
+        }
+    }
+    return anotar(exp, tipoDe(f->tipo));
+}
+
+// Llamada a una plantilla: deduce los tipos de T a partir de los argumentos (o de f<int>(...)),
+// crea la instancia si todavía no existe y convierte la llamada en una llamada ordinaria
+// a esa instancia (exp->nombre pasa a ser el nombre de la instancia, p. ej. "maximo.int").
+Type TypeChecker::llamarPlantilla(FCallExp* exp) {
+    const Plantilla& pl = programa->plantillas.at(exp->nombre);
+    if (exp->argumentos.size() != pl.paramTipos.size()) {
+        error("la plantilla " + pl.nombre + " espera " + to_string(pl.paramTipos.size())
+              + " argumento(s), pero recibió " + to_string(exp->argumentos.size()));
+    }
+    if (exp->targs.size() > pl.tparams.size()) {
+        error("demasiados argumentos de plantilla para " + pl.nombre);
+    }
+    vector<Type> tiposArgs;
+    for (Exp* a : exp->argumentos) tiposArgs.push_back(a->accept(this));
+
+    // 1) Tipos dados explícitamente: se respetan (los argumentos se convertirán a ellos)
+    map<string, string> enlace;
+    set<string> explicitos;
+    for (size_t k = 0; k < exp->targs.size(); k++) {
+        enlace[pl.tparams[k]] = exp->targs[k];
+        explicitos.insert(pl.tparams[k]);
+    }
+    // 2) Deducción: cada parámetro cuyo tipo es exactamente T fija T con el tipo de su argumento.
+    //    Como en C++, todos los argumentos que fijan la misma T deben tener el mismo tipo.
+    for (size_t i = 0; i < tiposArgs.size(); i++) {
+        const string& pt = pl.paramTipos[i];
+        if (find(pl.tparams.begin(), pl.tparams.end(), pt) == pl.tparams.end()) continue;
+        if (explicitos.count(pt)) continue;
+        const Type& t = tiposArgs[i];
+        if (t.isArray()) error("no se puede deducir " + pt + " a partir de un arreglo (llamada a " + pl.nombre + ")");
+        if (t.isVoid())  error("no se puede deducir " + pt + " a partir de una expresión void (llamada a " + pl.nombre + ")");
+        string nombreTipo = t.kindName();
+        auto it = enlace.find(pt);
+        if (it == enlace.end()) enlace[pt] = nombreTipo;
+        else if (it->second != nombreTipo) {
+            error("conflicto al deducir " + pt + " en " + pl.nombre + ": " + it->second + " y " + nombreTipo);
+        }
+    }
+    vector<string> tipos;
+    string instancia = pl.nombre;
+    for (const string& t : pl.tparams) {
+        auto it = enlace.find(t);
+        if (it == enlace.end()) {
+            error("no se puede deducir el parámetro de plantilla " + t + " en la llamada a " + pl.nombre);
+        }
+        tipos.push_back(it->second);
+        instancia += "." + it->second;       // '.' no puede aparecer en un identificador: sin choques
+    }
+    if (!funciones.count(instancia)) instanciar(pl, tipos, instancia);
+    exp->nombre = instancia;
+    return validarLlamada(exp, funciones[instancia], tiposArgs);
+}
+
+// Crea la instancia de la plantilla: segundo parseo con T := tipo, registro y verificación.
+// Se registra ANTES de verificar el cuerpo, así una instancia recursiva se encuentra a sí misma.
+void TypeChecker::instanciar(const Plantilla& pl, const vector<string>& argsTipo, const string& nombre) {
+    string lista;
+    for (const string& t : argsTipo) lista += (lista.empty() ? "" : ", ") + t;
+    FunDec* inst = nullptr;
+    try {
+        inst = Parser::instanciar(pl, argsTipo, estructuras);
+    } catch (const exception& e) {
+        error(string(e.what()) + " (al instanciar " + pl.nombre + "<" + lista + ">)");
+    }
+    inst->nombre = nombre;
+    registrar(inst);
+    instancias.push_back(inst);
+    numFunciones++;
+
+    // La instancia se verifica con un entorno limpio: no ve las variables de quien la llama
+    FunDec* actual = funcionActual;
+    int bucleActual = bucles;
+    Environment<Type> entorno = tipos;
+    tipos.clear();
+    bucles = 0;
+    try {
+        inst->accept(this);
+    } catch (const exception& e) {
+        error(string(e.what()) + " (al instanciar " + pl.nombre + "<" + lista + ">)");
+    }
+    funcionActual = actual;
+    bucles = bucleActual;
+    tipos = entorno;
+}
+
 // f(a1, ..., an): la función ya está declarada (como en C++, antes de usarse),
 // recibe n argumentos y cada uno es convertible al tipo de su parámetro.
 // max / min sin declarar se resuelven a std::max / std::min.
@@ -1118,35 +1232,18 @@ Type TypeChecker::visit(FCallExp* exp) {
     const string& nombre = exp->nombre;
     bool calificado = nombre.rfind("std::", 0) == 0;
 
-    if (!calificado && tipos.check(nombre)) {
-        error("'" + nombre + "' es una variable y no se puede llamar como función");
+    if (!calificado && programa->plantillas.count(nombre)) {
+        return llamarPlantilla(exp);
     }
     if (!calificado && funciones.count(nombre)) {
         FunDec* f = funciones[nombre];
-        llamadas.insert(nombre);
         if (exp->argumentos.size() != f->parametros_tipos.size()) {
             error("la función " + f->nombre + " espera " + to_string(f->parametros_tipos.size())
                   + " argumento(s), pero recibió " + to_string(exp->argumentos.size()));
         }
-        for (size_t i = 0; i < exp->argumentos.size(); i++) {
-            Type t = exp->argumentos[i]->accept(this);
-            Type p = tipoDe(f->parametros_tipos[i]);
-            bool ok;
-            if (p.isArray() || t.isArray()) {
-                // Un arreglo se pasa como puntero a su primer elemento: mismo tipo de elemento
-                // y mismas dimensiones salvo la primera
-                ok = p.isArray() && t.isArray() && p.kind == t.kind && p.dims.size() == t.dims.size()
-                     && equal(p.dims.begin() + 1, p.dims.end(), t.dims.begin() + 1);
-            }
-            else {
-                ok = convertible(p, t);
-            }
-            if (!ok) {
-                error("el argumento " + to_string(i + 1) + " de " + f->nombre + " debe ser "
-                      + f->parametros_tipos[i] + ", pero es " + t.kindName());
-            }
-        }
-        return anotar(exp, tipoDe(f->tipo));
+        vector<Type> tiposArgs;
+        for (Exp* a : exp->argumentos) tiposArgs.push_back(a->accept(this));
+        return validarLlamada(exp, f, tiposArgs);
     }
 
     string base = calificado ? nombre.substr(5) : nombre;
@@ -1417,16 +1514,19 @@ void TypeChecker::registrar(FunDec* f) {
 // la función se registra antes de verificar su cuerpo.
 void TypeChecker::visit(Programa* program) {
     estructuras = program->estructuras;
+    programa = program;
     for (FunDec* f : program->funciones) {
-        if (f->nombre == "main" && (f->tipo != "int" || !f->parametros_tipos.empty())) {
-            error("main debe declararse como: int main()");
+        if (program->plantillas.count(f->nombre)) {
+            error("'" + f->nombre + "' ya está declarada como plantilla");
         }
+
         registrar(f);
         if (f->cuerpo) {
             numFunciones++;
             f->accept(this);
         }
     }
+    for (FunDec* inst : instancias) program->funciones.push_back(inst);
     if (!definidas.count("main")) {
         error("falta la función main");
     }

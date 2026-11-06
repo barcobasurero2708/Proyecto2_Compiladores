@@ -1,0 +1,41 @@
+#include <iostream>
+using namespace std;
+
+template <typename T>
+T cero() {
+    T r = 0;
+    return r;
+}
+
+template <typename A, typename B>
+A convertir(B valor) {
+    A r = valor;
+    return r;
+}
+
+template <typename T, typename U>
+void mostrarPar(T a, U b) {
+    cout << a << " / " << b << endl;
+}
+
+template <typename T>
+T repetirSuma(T x, int veces) {
+    T total = 0;
+    for (int i = 0; i < veces; i++) {
+        total = total + x;
+    }
+    return total;
+}
+
+int main() {
+    cout << cero<int>() << endl;
+    cout << cero<double>() << endl;
+    cout << convertir<int>(7.9) << endl;
+    cout << convertir<double>(3) << endl;
+    mostrarPar(1, 2.5);
+    mostrarPar('x', true);
+    mostrarPar(10, 20);
+    cout << repetirSuma(5, 4) << endl;
+    cout << repetirSuma(0.5, 3) << endl;
+    return 0;
+}

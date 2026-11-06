@@ -118,6 +118,8 @@ public:
     set<string> llamadas;                     // funciones del programa que se llaman
     FunDec* funcionActual = nullptr;          // función que se está verificando
     int bucles = 0;                           // cantidad de bucles abiertos (para break)
+    Programa* programa = nullptr;             // programa que se verifica (de aquí salen las plantillas)
+    vector<FunDec*> instancias;               // funciones nacidas de plantillas; se agregan al programa al final
 
     // Conteos que usa el GencodeVisitor para reservar la pila
     int numFunciones = 0;                     // funciones del programa
@@ -159,6 +161,9 @@ private:
     void esperarBool(Exp* condicion, const string& donde);
     void registrar(FunDec* f);
     Type destino(const string& nombre, const vector<Exp*>& indices, const string& accion);
+    Type validarLlamada(FCallExp* exp, FunDec* f, const vector<Type>& tiposArgs);
+    Type llamarPlantilla(FCallExp* exp);
+    void instanciar(const Plantilla& plantilla, const vector<string>& argsTipo, const string& nombre);
 };
 
 #endif // VISITOR_H
