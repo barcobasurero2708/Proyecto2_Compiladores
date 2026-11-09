@@ -14,7 +14,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent
 SOURCES = ["main.cpp", "scanner.cpp", "token.cpp", "parser.cpp",
-           "ast.cpp", "visitor.cpp", "type.cpp", "optimizer.cpp", "peephole.cpp",
+           "ast.cpp", "visitor.cpp", "tipo_utils.cpp",
+           "type_checker_visitor.cpp", "gencode_visitor.cpp", "type.cpp", "optimizer.cpp", "peephole.cpp",
            "seguridad.cpp"]
 HEADER = "#include <iostream>\nusing namespace std;\n"
 
@@ -1430,7 +1431,8 @@ class CompilerTests(unittest.TestCase):
     def test_reporte_con_return_no_cero_y_error_de_ejecucion(self):
         directory = Path(tempfile.mkdtemp(dir=self.work))
         for source in SOURCES + ["scanner.h", "token.h", "parser.h", "ast.h",
-                                 "visitor.h", "type.h", "environment.h", "optimizer.h",
+                                 "visitor.h","type_checker_visitor.h", "gencode_visitor.h",
+                                 "tipo_utils.h", "type.h", "environment.h", "optimizer.h",
                                  "peephole.h", "seguridad.h", "run_all_inputs.py"]:
             shutil.copyfile(ROOT / source, directory / source)
         inputs = directory / "inputs"
