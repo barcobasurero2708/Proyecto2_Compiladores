@@ -21,7 +21,10 @@ Se desarolladrá un compilador de un **subconjunto de C++** (aritmética y sente
 - `ast.h` / `ast.cpp`: nodos del AST (expresiones, sentencias, declaraciones).
 - `type.h` / `type.cpp`: `Type` (int, long, bool, char, float, double, string) y las reglas de conversión aritmética.
 - `environment.h`: entorno con niveles (scopes) para variables.
-- `visitor.h` / `visitor.cpp`: `TypeChecker` y `GencodeVisitor`.
+- `visitor.h` / `visitor.cpp`: interfaz `Visitor` y los `accept` de cada nodo del AST.
+- `type_checker_visitor.h` / `typechecker_visitor.cpp`: `TypeChecker`.
+- `gencode_visitor.h` / `gencode_visitor.cpp`: `GencodeVisitor` (generación de ensamblador x86-64).
+- `tipo_utils.h` / `tipo_utils.cpp`: utilidades de tipos y expresiones compartidas.
 - `optimizer.h` / `optimizer.cpp`: optimizaciones del AST y grafo de flujo de control.
 - `peephole.h` / `peephole.cpp`: optimización de mirilla sobre el ensamblador.
 - `seguridad.h` / `seguridad.cpp`: análisis estáticos de seguridad.

@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <climits>
 #include "optimizer.h"
+#include "tipo_utils.h"
 
 using namespace std;
 

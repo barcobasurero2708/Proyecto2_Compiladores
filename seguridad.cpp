@@ -1,6 +1,7 @@
 #include <iostream>
 #include <stdexcept>
 #include "seguridad.h"
+#include "tipo_utils.h"
 
 using namespace std;
 

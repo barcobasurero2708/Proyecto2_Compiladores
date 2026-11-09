@@ -6,7 +6,8 @@ import shutil
 import time
 
 # Archivos c++
-programa = ["main.cpp", "scanner.cpp", "token.cpp", "parser.cpp", "ast.cpp", "visitor.cpp", "type.cpp",
+programa = ["main.cpp", "scanner.cpp", "token.cpp", "parser.cpp", "ast.cpp", "visitor.cpp", "tipo_utils.cpp", 
+            "type_checker_visitor.cpp", "gencode_visitor.cpp", "type.cpp",
             "optimizer.cpp", "peephole.cpp", "seguridad.cpp"]
 
 # Compilar
