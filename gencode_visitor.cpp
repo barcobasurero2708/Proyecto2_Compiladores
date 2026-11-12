@@ -291,12 +291,17 @@ Type GencodeVisitor::visit(BinaryExp* exp) {
         return Type::deKind(Type::BOOL);
     }
     Type::Kind k = exp->tipoOperandos;
+    // Aritmética de punteros: el entero se multiplica por el tamaño de un elemento
+    bool punteroIzq = exp->left->tipoExp.esPuntero, punteroDer = exp->right->tipoExp.esPuntero;
+    bool aritmeticaPuntero = (exp->op == PLUS_OP || exp->op == MINUS_OP) && (punteroIzq || punteroDer);
     exp->left->accept(this);
     convertir(kindValor(exp->left), k);
+    if (aritmeticaPuntero && !punteroIzq) out << "imulq $" << TAM_VARIABLE << ", %rax" << endl;
     out << "pushq %rax" << endl;
     pila++;
     exp->right->accept(this);
     convertir(kindValor(exp->right), k);
+    if (aritmeticaPuntero && !punteroDer) out << "imulq $" << TAM_VARIABLE << ", %rax" << endl;
     out << "movq %rax, %rcx" << endl;
     out << "popq %rax" << endl;
     pila--;
@@ -308,6 +313,8 @@ Type GencodeVisitor::visit(BinaryExp* exp) {
             comparar(exp->op, k);
             break;
     }
+    // p - q: la diferencia en bytes es múltiplo exacto de 8 = 2^3; se pasa a elementos
+    if (aritmeticaPuntero && punteroIzq && punteroDer) out << "sarq $3, %rax" << endl;
     return exp->tipoExp;
 }
 

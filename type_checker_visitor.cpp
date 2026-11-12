@@ -170,6 +170,25 @@ Type TypeChecker::visit(BinaryExp* exp) {
         }
         return anotar(exp, Type::BOOL);
     }
+    // Aritmética de punteros: p + n, n + p y p - n dan un puntero del mismo tipo;
+    // p - q (mismo tipo) da la distancia en elementos, como long (ptrdiff_t)
+    bool suma = exp->op == PLUS_OP, resta = exp->op == MINUS_OP;
+    if ((suma || resta) && (l.esPuntero || r.esPuntero)) {
+        exp->tipoOperandos = Type::LONG;
+        if (l.esPuntero && r.esPuntero) {
+            if (resta && !l.isNulo() && !r.isNulo() && l.kind == r.kind) return anotar(exp, Type::LONG);
+        }
+        else {
+            const Type& puntero = l.esPuntero ? l : r;
+            const Type& entero = l.esPuntero ? r : l;
+            if (!puntero.isNulo() && esEntero(entero) && (suma || l.esPuntero)) {
+                Type resultado = Type::deKind(puntero.kind);
+                resultado.esPuntero = true;
+                return anotar(exp, resultado);
+            }
+        }
+        error("el operador '" + op + "' no se puede aplicar a " + operandos);
+    }
     // Los punteros solo se comparan por igualdad, con otro del mismo tipo o con nullptr
     if (l.esPuntero || r.esPuntero) {
         bool igualdad = exp->op == EQ_OP || exp->op == NE_OP;

@@ -151,6 +151,37 @@ VALID = {
         return 0;
     }""",
     "puntero_con_auto": """int main() { int x = 1; auto p = &x; *p = 2; cout << x << endl; return 0; }""",
+    "puntero_aritmetica": """int main() {
+        int a[5] = {10, 20, 30, 40, 50};
+        int* p = &a[0];
+        int* q = &a[4];
+        cout << *(p + 1) << " " << *(2 + p) << " " << *(q - 1) << endl;
+        cout << q - p << " " << p - q << " " << (p + 4 == q) << endl;
+        *(p + 3) = 7;
+        p = p + 2;
+        int i = 1;
+        char c = 1;
+        long l = 2;
+        cout << a[3] << " " << *p << " " << *(p + i) << " " << *(p - c) << " " << *(&a[0] + l) << endl;
+        int* r = p + 0;
+        cout << *r << " " << *(p - 0) << endl;
+        double d[3] = {1.5, 2.5, 3.5};
+        double* s = &d[2];
+        cout << *(s - 2) << " " << s - &d[0] << endl;
+        return 0;
+    }""",
+    "puntero_aritmetica_en_funcion": """int suma(int* p, int n) {
+        int total = 0;
+        for (int i = 0; i < n; i++) total = total + *(p + i);
+        return total;
+    }
+    void llenar(int* p, int n) { for (int i = 0; i < n; i++) *(p + i) = i * i; }
+    int main() {
+        int a[4];
+        llenar(&a[0], 4);
+        cout << suma(&a[0], 4) << " " << suma(&a[1], 2) << " " << a[3] << endl;
+        return 0;
+    }""",
     # --- strings ---
     "string_indices_y_longitud": """int contar(const string& s, char c) {
         int n = 0;
@@ -1036,7 +1067,14 @@ INVALID = {
     "puntero_desreferencia_entero": ("""int main() { int x = 1; cout << *x; return 0; }""", "necesita un puntero"),
     "puntero_nullptr_desreferencia": ("""int main() { *nullptr; return 0; }""", "necesita un puntero"),
     "puntero_direccion_literal": ("""int main() { int* p = &3; return 0; }""", "'&' necesita"),
-    "puntero_aritmetica": ("""int main() { int x = 0; int* p = &x; p = p + 1; int y = p * 2; return 0; }""", "no se puede aplicar"),
+    "puntero_multiplicacion": ("""int main() { int x = 0; int* p = &x; int y = p * 2; return 0; }""", "no se puede aplicar"),
+    "puntero_suma_de_punteros": ("""int main() { int a[2]; int* p = &a[0]; int* q = &a[1]; p = p + q; return 0; }""", "no se puede aplicar"),
+    "puntero_resta_tipos_distintos": ("""int main() { int a = 0; double b = 0; int* p = &a; double* q = &b; long d = p - q; return 0; }""",
+                                      "no se puede aplicar"),
+    "puntero_mas_double": ("""int main() { int a[2]; int* p = &a[0]; p = p + 1.5; return 0; }""", "no se puede aplicar"),
+    "puntero_entero_menos_puntero": ("""int main() { int a[2]; int* p = &a[0]; p = 1 - p; return 0; }""", "no se puede aplicar"),
+    "puntero_nullptr_aritmetica": ("""int main() { int* p = nullptr + 1; return 0; }""", "no se puede aplicar"),
+    "puntero_resta_a_entero": ("""int main() { int a[2]; int* p = &a[0]; int* q = p - p; return 0; }""", "inicializar"),
     "puntero_comparar_tipos": ("""int main() { int a = 0; double b = 0; int* p = &a; double* q = &b; bool c = p == q; return 0; }""",
                                "no se puede aplicar"),
     "puntero_a_entero": ("""int main() { int x = 0; int* p = &x; int y = p; return 0; }""", "inicializar"),

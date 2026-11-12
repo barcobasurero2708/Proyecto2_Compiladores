@@ -222,18 +222,23 @@ operando de `cout` es una expresión aditiva: `cout << a < b;` es un error y se 
 - **`auto`**: `auto x = e;` toma el tipo de `e`, sin `const` (`const auto x = e;` lo conserva). Con
   varias variables, todas deben deducir el mismo tipo. Una función `auto` toma el tipo de su primer
   `return`, los demás deben coincidir y, sin `return`, es `void`. No se puede llamar antes de
-  deducir su tipo, por lo que una función `auto` recursiva da error. `auto s = "hola";` es `string`,
+  deducir su tipo: una función `auto` puede ser recursiva solo después de su primer `return`, como en C++. `auto s = "hola";` es `string`,
   no `const char*` como en C++.
 - **Punteros**: `int* p = &x;`, `*p`, `*p = v`, `nullptr`, y comparar con `==` y `!=`. Un puntero
   sirve como condición y un puntero sin inicializar vale `nullptr`.
+- **Aritmética de punteros**: `p + n`, `n + p` y `p - n` (con `n` entero) dan un puntero del mismo
+  tipo, por ejemplo `*(p + 1)` o `*(p + i) = v`; `p - q` (mismo tipo) da la distancia en elementos
+  como `long`. El entero se multiplica por el tamaño de un elemento (8 bytes).
 - **Strings**: `s[i]` lee un carácter y `s.size()` / `s.length()` dan el largo. `s[s.size()]` es
   válido y vale `'\0'`, como en `std::string`.
 
 ### Límites de `auto`, punteros y strings
 
 - `auto` no se admite en parámetros ni en `auto& r` o `auto x{1}`.
-- Solo hay punteros de un nivel a tipos numéricos. No hay aritmética de punteros, punteros `const`,
-  arreglos de punteros, punteros en plantillas, ni `new`/`delete`.
+- Solo hay punteros de un nivel a tipos numéricos. No hay `p++`, `p += n`, comparaciones `<` / `>`
+  entre punteros, punteros `const`, arreglos de punteros, punteros en plantillas, ni `new`/`delete`.
+- La aritmética de punteros no verifica límites: `*(p + n)` fuera del arreglo no se detecta
+  (en C++ es comportamiento indefinido).
 - Cada puntero se declara por separado. Un puntero no detecta que apunte a una variable que ya
   dejó de existir.
 - Un carácter de un string no se puede modificar: `s[0] = 'x';` es un error.
