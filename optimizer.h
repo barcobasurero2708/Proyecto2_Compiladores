@@ -109,6 +109,7 @@ struct NodoCFG {
     Stmt* sentencia = nullptr;     // sentencia que se borra si el nodo sobra (nullptr: no se borra)
     string declarada;              // variable que declara este nodo
     string definida;               // variable que se escribe por completo en este nodo
+    Exp* expresion = nullptr;      // condición o expresión que evalúa este nodo
     Exp* valor = nullptr;          // expresión que se le asigna
     set<string> usos;              // variables que lee este nodo
     vector<int> sucesores;
