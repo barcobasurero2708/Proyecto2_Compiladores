@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10141c">
+  <title>Laboratorio de compilación</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/ast.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-icon" aria-hidden="true">&gt;_</span>
+      <div><strong>Laboratorio de compilación</strong><small>PROYECTO 02 · COMPILADORES</small></div>
+    </div>
+    <span class="target"><span></span> C++ → x86-64</span>
+  </header>
+
+  <main>
+    <section class="intro">
+      <p class="eyebrow">ENTORNO DE DEMOSTRACIÓN</p>
+      <h1>Del código al ensamblador</h1>
+      <p>Escribe un programa y explora cómo el compilador lo analiza, optimiza y ejecuta.</p>
+    </section>
+
+    <section class="toolbar" aria-label="Controles de compilación">
+      <label class="example-control">Ejemplos
+        <select id="examples" aria-label="Cargar ejemplo"><option value="">Selecciona un ejemplo</option></select>
+      </label>
+      <div class="options">
+        <label><input type="checkbox" id="optimize" checked> Optimizar</label>
+        <label title="Análisis de seguridad y comprobaciones en el ensamblador"><input type="checkbox" id="security" checked> Seguridad</label>
+      </div>
+      <div class="actions">
+        <button id="compile" type="button">Compilar</button>
+        <button id="run" type="button" class="primary"><span aria-hidden="true">▶</span> Ejecutar</button>
+      </div>
+    </section>
+
+    <div class="workspace">
+      <section class="pane source" aria-labelledby="source-title">
+        <header class="pane-header">
+          <div><span class="pane-number">01</span><h2 id="source-title">Código fuente</h2></div>
+          <span class="file-name">programa.cpp</span>
+        </header>
+        <div class="editor">
+          <div id="gutter" aria-hidden="true"></div>
+          <div class="editor-main">
+            <div id="highlight" aria-hidden="true"><pre id="paint"></pre></div>
+            <textarea id="source" aria-label="Código fuente C++" maxlength="65536" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off"></textarea>
+          </div>
+        </div>
+        <footer class="pane-footer"><span id="position">Línea 1, columna 1</span><span>Ctrl + Intro para compilar</span></footer>
+      </section>
+
+      <section class="pane results" aria-labelledby="result-title">
+        <header class="pane-header">
+          <div><span class="pane-number">02</span><h2 id="result-title">Resultados</h2></div>
+          <span id="status" role="status" data-state="ready">Listo</span>
+        </header>
+        <div id="tabs" role="tablist" aria-label="Resultados del compilador">
+          <button type="button" role="tab" id="tab-diagnostics" aria-controls="view-diagnostics" aria-selected="true">Diagnósticos <span id="count" hidden></span></button>
+          <button type="button" role="tab" id="tab-ast" aria-controls="view-ast" aria-selected="false" tabindex="-1">AST</button>
+          <button type="button" role="tab" id="tab-ir" aria-controls="view-ir" aria-selected="false" tabindex="-1">IR</button>
+          <button type="button" role="tab" id="tab-asm" aria-controls="view-asm" aria-selected="false" tabindex="-1">Ensamblador</button>
+          <button type="button" role="tab" id="tab-output" aria-controls="view-output" aria-selected="false" tabindex="-1">Ejecución</button>
+        </div>
+        <div id="views">
+          <section id="view-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" tabindex="0"></section>
+          <section id="view-ast" role="tabpanel" aria-labelledby="tab-ast" tabindex="0" hidden></section>
+          <section id="view-ir" role="tabpanel" aria-labelledby="tab-ir" tabindex="0" hidden></section>
+          <section id="view-asm" role="tabpanel" aria-labelledby="tab-asm" tabindex="0" hidden></section>
+          <section id="view-output" role="tabpanel" aria-labelledby="tab-output" tabindex="0" hidden></section>
+        </div>
+        <footer class="pane-footer"><span>Compilador del proyecto</span><span id="timing">Sin compilar</span></footer>
+      </section>
+    </div>
+    <footer class="page-footer"><span>PROYECTO 02 / COMPILADORES</span><span>Ubuntu / WSL · System V</span></footer>
+  </main>
+</body>
+</html>
+

@@ -593,6 +593,7 @@ int ConstructorCFG::nodo(Stmt* sentencia, Exp* expresion) {
     int n = nodos.size();
     nodos.emplace_back();
     nodos[n].sentencia = sentencia;
+    nodos[n].expresion = expresion;
     agregarUsos(n, expresion);
     conectar(abiertos, n);
     abiertos = {n};

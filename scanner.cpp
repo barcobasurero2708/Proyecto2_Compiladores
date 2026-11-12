@@ -71,8 +71,10 @@ Token* Scanner::nextToken() {
         else break;
     }
 
-    if (current >= input.length())
+    if (current >= input.length()) {
+        first = current;
         return new Token(Token::END);
+    }
 
     char c = input[current];
     first = current;
@@ -267,6 +269,11 @@ Token::Type Scanner::peekTipo() {
     first = inicio;
     current = posicion;
     return tipo;
+}
+
+// Posición del token actual, o el final de la entrada después de END.
+int Scanner::posicionActual() const {
+    return first;
 }
 
 // Destructor del scanner

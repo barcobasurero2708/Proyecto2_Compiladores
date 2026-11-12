@@ -107,6 +107,7 @@ public:
 // Un nodo del grafo: una sentencia simple o la condición de una sentencia de control.
 struct NodoCFG {
     Stmt* sentencia = nullptr;     // sentencia que se borra si el nodo sobra (nullptr: no se borra)
+    Exp* expresion = nullptr;      // condición o expresión asociada al nodo
     string declarada;              // variable que declara este nodo
     string definida;               // variable que se escribe por completo en este nodo
     Exp* valor = nullptr;          // expresión que se le asigna
