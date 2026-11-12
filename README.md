@@ -1,6 +1,6 @@
-# Proyecto 2 (Compiladores) Fase inicial
+# Proyecto 2 (Compiladores) Fase Final
 
-Se desarolladrá un compilador de un **subconjunto de C++** (aritmética y sentencias de control básicas) que genera **ensamblador x86-64**. Se está basando en el mini compilador visto en clase, cuya gramática propia fue traducida a sintaxis C++.
+Se desarolló un compilador de un **subconjunto de C++** (aritmética, sentencias de control básicas, structs y templates) que genera **ensamblador x86-64**. Se está basando en el mini compilador visto en clase, cuya gramática propia fue traducida a sintaxis C++.
 
 ## Pipeline
 
@@ -36,47 +36,35 @@ Se desarolladrá un compilador de un **subconjunto de C++** (aritmética y sente
 
 ### Requisitos
 
-- **Ubuntu** (o WSL) en una máquina **x86-64**. 
-- `g++`, `gcc`, `git` y `python3` (3.8 o superior).
+- **Ubuntu** (o WSL) en una máquina **Linux x86-64**.
+- `git`, `g++`, `gcc`, `python3` y `prlimit` (incluido en `util-linux`).
+- Un navegador web.
 
 ```bash
 sudo apt update
-sudo apt install -y git build-essential python3
+sudo apt install -y git build-essential python3 util-linux
 ```
 
 ### Pasos de uso
 
-Estos pasos son solo para pruebas personales de las fases iniciales, serán innecesarios para cuando se implemente el frontend.
-
-1. **Clonar** el repositorio y abrirlo en Visual Studio Code:
+1. **Clonar** el repositorio y entrar en la carpeta del proyecto:
 
    ```bash
-   git clone https://github.com/barcobasurero2708/Proyecto2_Compiladores
+   git clone https://github.com/barcobasurero2708/Proyecto2_Compiladores.git
+   cd Proyecto2_Compiladores
    ```
 
-2. **Abrir la terminal** integrada de VS Code de **Ubuntu** y comprobar que estás en la carpeta raíz, la que contiene `main.cpp` y `run_all_inputs.py`.
-
-3. **Escribir los programas de prueba** en `inputs/`. Los archivos deben llamarse `input1.txt`, `input2.txt`, `input3.txt`, ... ,`inputN.txt` (el script solo detecta ese patrón). Todos deben empezar con las dos líneas obligatorias:
-
-   ```cpp
-   #include <iostream>
-   using namespace std;
-
-   int main() {
-
-       return 0;
-   }
-   ```
-
-4. **Ejecutar el script**:
+2. **Iniciar el frontend** desde la raíz del repositorio:
 
    ```bash
-   python3 run_all_inputs.py
+   python3 frontend/server.py
    ```
 
-5. **Ver los resultados** en la carpeta `outputs/`:
-   - `reporte.txt`: por cada input, el código, si pasó el TypeChecker y lo que imprime el programa compilado (o el error).
-   - `inputN.s`: el ensamblador generado.
+   Al iniciar, el servidor compila el puente del frontend. Cuando termine, mostrará la dirección local en la terminal, normalmente `http://127.0.0.1:8765`.
+
+3. **Abrir la dirección** que muestra el servidor en el navegador. Deja la terminal abierta mientras uses la aplicación; para detener el servidor, presiona `Ctrl+C`.
+
+4. **Probar el compilador**: elige una demostración o un archivo de `inputs/`, luego pulsa **Compilar** para ver el AST, el IR y el ensamblador, o **Ejecutar** para ensamblar y ejecutar el programa.
 
 
 ## Gramática aceptada
