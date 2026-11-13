@@ -292,6 +292,94 @@ function changed() {
   find("timing").textContent = "Cambios sin compilar";
 }
 
+const WANDBOX_API_URL = "https://wandbox.org/api/compile.json";
+const WANDBOX_COMPILER = "gcc-head";
+
+function makeWandboxSource(assembly) {
+  if (typeof assembly !== "string" || !assembly.trim()) {
+    throw new Error("El compilador no generó ensamblador para ejecutar.");
+  }
+
+  // C++ raw strings preserve GAS syntax (quotes, backslashes, %, $, and newlines).
+  // Pick a delimiter that cannot accidentally terminate inside user-generated assembly.
+  let delimiter = "WASM";
+  let suffix = 0;
+  while (assembly.includes(`)${delimiter}"`)) {
+    suffix += 1;
+    delimiter = `WASM${suffix}`;
+    if (delimiter.length > 16) {
+      throw new Error("No se pudo preparar el ensamblador para Wandbox.");
+    }
+  }
+
+  return `__asm__(R"${delimiter}(\n${assembly}\n)${delimiter}");\n`;
+}
+
+async function runAssemblyOnWandbox(assembly) {
+  const started = performance.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  const payload = {
+    compiler: WANDBOX_COMPILER,
+    code: makeWandboxSource(assembly),
+    "compiler-option-raw": "-std=gnu++17\n-O0",
+    "runtime-option-raw": "",
+    stdin: "",
+    save: false,
+  };
+
+  try {
+    const response = await fetch(WANDBOX_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    const responseText = await response.text();
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      throw new Error(`Wandbox devolvió una respuesta no válida (HTTP ${response.status}).`);
+    }
+
+    if (!response.ok) {
+      const detail = data.error || data.message || responseText.slice(0, 300);
+      throw new Error(`Wandbox respondió HTTP ${response.status}: ${detail}`);
+    }
+
+    const compilerError = String(data.compiler_error || "").trim();
+    const rawStatus = data.status;
+    const exitCode = rawStatus === undefined || rawStatus === null || rawStatus === "" || compilerError
+      ? null
+      : Number(rawStatus);
+
+    if (exitCode !== null && !Number.isFinite(exitCode)) {
+      throw new Error("Wandbox devolvió un código de salida inesperado.");
+    }
+
+    const execution = {
+      stdout: String(data.program_output || ""),
+      stderr: String(data.program_error || compilerError || ""),
+      exitCode,
+      signal: data.signal || null,
+      timedOut: false,
+      elapsedMs: Math.round((performance.now() - started) * 10) / 10,
+    };
+
+    return { execution, compilerError };
+  } catch (error) {
+    if (error && error.name === "AbortError") {
+      throw new Error("Wandbox tardó demasiado en responder (límite local: 30 segundos). Inténtalo nuevamente.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function submit(execute) {
   if (busy) return;
   busy = true;
@@ -302,11 +390,28 @@ async function submit(execute) {
     const response = await fetch("/api/compile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source: source.value, optimize: optimize.checked, security: security.checked, execute }),
+      body: JSON.stringify({ source: source.value, optimize: optimize.checked, security: security.checked, execute: false }),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "La solicitud falló.");
     if (submitted !== revision) return;
+
+    if (execute && result.ok) {
+      setStatus("Enviando ensamblador a Wandbox…", "ready");
+      const remote = await runAssemblyOnWandbox(result.assembly);
+      result.execution = remote.execution;
+      if (remote.compilerError) {
+        const isError = /(error:|fatal error:|undefined reference|ld returned|cannot find)/i.test(remote.compilerError);
+        result.diagnostics.push({
+          phase: "ensamblado",
+          message: remote.compilerError,
+          severity: isError ? "error" : "warning",
+          line: null,
+          column: null,
+        });
+      }
+    }
+
     render(result);
     find("timing").textContent = "Compilación · " + result.compileMs + " ms";
     const errors = result.diagnostics.some((d) => d.severity === "error");

@@ -165,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Security-Policy",
-                         "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'")
+                         "default-src 'self'; connect-src 'self' https://wandbox.org; base-uri 'none'; frame-ancestors 'none'; object-src 'none'")
         self.end_headers()
         self.wfile.write(content)
 
