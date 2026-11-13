@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -172,12 +173,33 @@ class Handler(BaseHTTPRequestHandler):
         self.send_content(json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json", status)
 
     def host_allowed(self):
-        port = self.server.server_port
-        return self.headers.get("Host") in {f"127.0.0.1:{port}", f"localhost:{port}"}
+        host = self.headers.get("Host", "")
+        if not host or any(char.isspace() for char in host) or "/" in host or "\\" in host:
+            return False
+        try:
+            return urlsplit("//" + host).hostname is not None
+        except ValueError:
+            return False
+
+    def origin_matches_host(self, origin):
+        try:
+            parsed_origin = urlsplit(origin)
+            parsed_host = urlsplit("//" + self.headers.get("Host", ""))
+            if (parsed_origin.scheme not in {"http", "https"}
+                    or not parsed_origin.hostname or not parsed_host.hostname
+                    or parsed_origin.hostname.lower() != parsed_host.hostname.lower()):
+                return False
+            origin_port = parsed_origin.port or (443 if parsed_origin.scheme == "https" else 80)
+            host_port = parsed_host.port or origin_port
+            return origin_port == host_port
+        except ValueError:
+            return False
 
     def do_GET(self):
         if not self.host_allowed():
             self.send_error(403)
+        elif self.path == "/healthz":
+            self.send_json({"status": "ok"})
         elif self.path in ASSETS:
             name, content_type = ASSETS[self.path]
             self.send_content((HERE / name).read_bytes(), content_type)
@@ -190,7 +212,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         origin = self.headers.get("Origin")
-        if (not self.host_allowed() or (origin and origin != "http://" + self.headers["Host"])
+        if (not self.host_allowed() or (origin and not self.origin_matches_host(origin))
                 or self.headers.get_content_type() != "application/json"):
             self.send_error(403)
             return
@@ -211,6 +233,10 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, RecursionError) as error:
             self.send_json({"error": str(error)}, 400)
             return
+        allow_execution = os.environ.get("ALLOW_CODE_EXECUTION", "true").strip().lower() in {"1", "true", "yes"}
+        if options[2] and not allow_execution:
+            self.send_json({"error": "La ejecución de programas está deshabilitada en la demo pública. Puedes compilar y revisar el AST, IR y ensamblador."}, 403)
+            return
         if not JOBS.acquire(blocking=False):
             self.send_json({"error": "Hay dos compilaciones en curso. Inténtalo de nuevo."}, 429)
             return
@@ -224,25 +250,38 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(result)
 
 
+def serve(port, binary):
+    with ThreadingHTTPServer(("0.0.0.0", port), Handler) as server:
+        server.bridge = binary
+        print(f"Servidor listo en el puerto {server.server_port}", flush=True)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8765")))
     args = parser.parse_args()
     if platform.system() != "Linux" or platform.machine() != "x86_64":
         parser.exit(1, "Inicia este servidor en Ubuntu o WSL x86-64.\n")
     if any(shutil.which(tool) is None for tool in ("g++", "gcc", "prlimit")):
         parser.exit(1, "Instala g++, gcc y util-linux en Ubuntu o WSL.\n")
+
+    configured_bridge = os.environ.get("COMPILER_BRIDGE")
+    if configured_bridge:
+        binary = Path(configured_bridge)
+        if not binary.is_file() or not os.access(binary, os.X_OK):
+            parser.exit(1, "No se encontró el compilador puente precompilado.\n")
+        serve(args.port, binary)
+        return
+
     with tempfile.TemporaryDirectory(prefix="compilador-web-") as directory:
         binary = Path(directory) / "bridge"
-        with ThreadingHTTPServer(("127.0.0.1", args.port), Handler) as server:
-            print("Preparando el compilador…", flush=True)
-            build_bridge(binary)
-            server.bridge = binary
-            print(f"Abre http://127.0.0.1:{server.server_port} en tu navegador.", flush=True)
-            try:
-                server.serve_forever()
-            except KeyboardInterrupt:
-                pass
+        print("Preparando el compilador…", flush=True)
+        build_bridge(binary)
+        serve(args.port, binary)
 
 
 if __name__ == "__main__":

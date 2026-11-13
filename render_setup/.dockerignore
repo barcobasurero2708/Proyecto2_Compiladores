@@ -1,0 +1,12 @@
+.git
+.github
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.env
+.env.*
+*.log
+outputs/*
+!outputs/.gitkeep
+.DS_Store
+Thumbs.db
